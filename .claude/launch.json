@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "unbake", "runtimeExecutable": "python3", "runtimeArgs": ["-m", "http.server", "8737"], "port": 8737 }
+  ]
+}

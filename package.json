@@ -1,0 +1,11 @@
+{
+  "name": "unbake",
+  "version": "1.0.0",
+  "description": "Recover the formulas behind a spreadsheet exported as plain values, and find the cells someone typed wrong.",
+  "private": true,
+  "scripts": {
+    "start": "python3 -m http.server 8737",
+    "test": "node --test test/engine.test.js",
+    "cli": "node cli.js"
+  }
+}

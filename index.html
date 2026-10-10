@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unbake</title>
+<style>
+:root {
+  --bg: #f6f4ef; --paper: #fffdf8; --ink: #1d1c1a; --muted: #6f6a61; --line: #e4dfd4; --line2: #d4cdbf;
+  --accent: #2f5bd3; --accent-soft: #e6ecfb; --derived: #f1f5ff; --derived-ink: #2846a0;
+  --bad: #c2362b; --bad-soft: #fde8e5; --warn: #b26a00; --warn-soft: #fff1d6; --good: #2e7d4f; --good-soft: #e3f3e8;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
+  --shadow: 0 1px 2px rgba(30,25,15,.05), 0 6px 24px rgba(30,25,15,.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15161a; --paper: #1d1f24; --ink: #ecebe7; --muted: #9a978f; --line: #2c2f36; --line2: #3a3e47;
+    --accent: #7d9cff; --accent-soft: #232c45; --derived: #1f2638; --derived-ink: #a9bcff;
+    --bad: #ff7b6e; --bad-soft: #3a1f1d; --warn: #f0b04a; --warn-soft: #3a2e17; --good: #6fcf97; --good-soft: #1b3326;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 24px rgba(0,0,0,.25);
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1240px; margin: 0 auto; padding: 0 20px; }
+header { padding: 28px 0 8px; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+.logo { font: 700 26px/1 var(--mono); letter-spacing: -1px; cursor: pointer; }
+.logo b { color: var(--accent); }
+.tag { color: var(--muted); }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+button { font: inherit; cursor: pointer; }
+.btn { border: 1px solid var(--line2); background: var(--paper); color: var(--ink); padding: 8px 14px; border-radius: 8px; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.card { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+
+/* ---------- landing */
+#landing { padding: 26px 0 60px; }
+.hero { font-size: clamp(26px, 4vw, 40px); line-height: 1.15; letter-spacing: -.02em; font-weight: 650; max-width: 860px; margin: 10px 0 14px; }
+.hero em { font-style: normal; color: var(--accent); }
+.sub { color: var(--muted); max-width: 720px; font-size: 16px; margin: 0 0 28px; }
+#drop { border: 2px dashed var(--line2); border-radius: 16px; padding: 34px 20px; text-align: center; background: var(--paper); transition: .15s; }
+#drop.over { border-color: var(--accent); background: var(--accent-soft); }
+#drop .big { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+#drop .row { display: flex; gap: 10px; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
+.samples { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-top: 26px; }
+.sample { text-align: left; padding: 18px; border: 1px solid var(--line); background: var(--paper); border-radius: 14px; color: var(--ink); transition: .15s; box-shadow: var(--shadow); }
+.sample:hover { border-color: var(--accent); transform: translateY(-2px); }
+.sample .t { font-weight: 650; font-size: 16px; margin: 6px 0 4px; }
+.sample .d { color: var(--muted); font-size: 13.5px; }
+.sample .ic { font-size: 22px; }
+.sample .go { color: var(--accent); font-size: 13px; margin-top: 10px; font-weight: 600; }
+#paste { display: none; margin-top: 14px; }
+#paste textarea { width: 100%; height: 180px; font: 12.5px/1.45 var(--mono); padding: 12px; border-radius: 10px; border: 1px solid var(--line2); background: var(--paper); color: var(--ink); }
+.err { color: var(--bad); background: var(--bad-soft); border-radius: 10px; padding: 10px 14px; margin-top: 14px; display: none; }
+.how { margin-top: 38px; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; color: var(--muted); font-size: 14px; }
+.how b { color: var(--ink); display: block; margin-bottom: 2px; }
+
+/* ---------- results */
+#results { display: none; padding: 10px 0 80px; }
+.topline { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 6px 0 18px; }
+.headline { font-size: clamp(20px, 2.6vw, 28px); font-weight: 650; letter-spacing: -.015em; flex: 1 1 520px; }
+.headline .n { color: var(--accent); }
+.headline .bad { color: var(--bad); }
+.meta { color: var(--muted); font-size: 13px; }
+.grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 18px; }
+@media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.panel { padding: 18px; }
+.formula { padding: 12px 12px 10px; border-radius: 10px; border: 1px solid var(--line); margin-bottom: 10px; background: var(--paper); transition: .12s; opacity: 0; transform: translateY(6px); }
+.formula.in { opacity: 1; transform: none; transition: opacity .35s, transform .35s; }
+.formula:hover { border-color: var(--accent); }
+.fx { font: 14.5px/1.6 var(--mono); }
+.fx .tg { font-weight: 700; }
+.fx .col { color: var(--derived-ink); background: var(--derived); border-radius: 5px; padding: 0 4px; }
+.fx .col.prev::before { content: "↑"; opacity: .7; margin-right: 1px; }
+.fx .num { color: var(--warn); font-weight: 600; }
+.fx .fn { color: var(--muted); }
+.fx .op { color: var(--muted); white-space: pre; }
+.fmeta { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 6px; font-size: 12.5px; color: var(--muted); }
+.xl { font: 12px var(--mono); background: var(--bg); border: 1px solid var(--line); padding: 2px 7px; border-radius: 6px; color: var(--ink); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pill { font-size: 11.5px; padding: 1px 8px; border-radius: 99px; background: var(--good-soft); color: var(--good); font-weight: 600; }
+.pill.warn { background: var(--bad-soft); color: var(--bad); }
+.maptbl { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.maptbl span { font: 11.5px var(--mono); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+.maptbl span b { color: var(--warn); font-weight: 600; }
+.extra { font-size: 13px; color: var(--muted); margin-top: 12px; }
+.extra div { margin: 3px 0; }
+.extra code { font: 12px var(--mono); color: var(--ink); }
+
+.fix { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; padding: 12px; border-radius: 10px; border: 1px solid var(--line); margin-bottom: 10px; cursor: pointer; transition: .12s; }
+.fix:hover { border-color: var(--bad); }
+.fix .where { font: 600 12px var(--mono); color: var(--muted); grid-row: span 2; padding-top: 3px; min-width: 52px; }
+.fix .what { font-size: 14.5px; }
+.fix .what s { color: var(--bad); text-decoration-thickness: 2px; font-family: var(--mono); }
+.fix .what ins { text-decoration: none; color: var(--good); font-weight: 700; font-family: var(--mono); }
+.fix .why { font-size: 13px; color: var(--muted); }
+.fix .why b { color: var(--ink); font-weight: 600; }
+.root { font-size: 11px; font-weight: 700; color: var(--bad); text-transform: uppercase; letter-spacing: .06em; margin-left: 6px; }
+.empty { color: var(--muted); font-size: 14px; padding: 6px 0; }
+
+#graph svg { width: 100%; height: auto; display: block; max-height: 340px; }
+#graphSvg { overflow-x: auto; }
+#graph text { font: 12px var(--sans); fill: var(--ink); }
+#graph .node rect { fill: var(--paper); stroke: var(--line2); }
+#graph .node.derived rect { fill: var(--derived); stroke: var(--accent); }
+#graph .node.text rect { stroke-dasharray: 3 3; }
+#graph path { fill: none; stroke: var(--line2); stroke-width: 1.5; }
+#graph path.hot { stroke: var(--accent); stroke-width: 2.2; }
+#graph .node.hot rect { stroke: var(--accent); stroke-width: 2.2; }
+
+/* ---------- table */
+.tablebar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 26px 0 10px; }
+.tablebar h2 { margin: 0; }
+.seg { display: inline-flex; border: 1px solid var(--line2); border-radius: 9px; overflow: hidden; }
+.seg button { border: 0; background: var(--paper); color: var(--muted); padding: 7px 13px; font-size: 13.5px; }
+.seg button.on { background: var(--ink); color: var(--paper); }
+.hint { color: var(--muted); font-size: 13px; flex: 1 1 260px; }
+.tbl { overflow: auto; max-height: 72vh; border-radius: 14px; }
+table { border-collapse: separate; border-spacing: 0; font-size: 13px; width: max-content; min-width: 100%; }
+th, td { padding: 6px 10px; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); white-space: nowrap; }
+th { position: sticky; top: 0; background: var(--paper); z-index: 2; text-align: left; font-weight: 600; vertical-align: bottom; }
+th .l { font: 11px var(--mono); color: var(--muted); display: block; }
+th .f { color: var(--accent); font-family: var(--mono); margin-left: 4px; }
+th.hot { box-shadow: inset 0 -3px 0 var(--accent); }
+td.rn { font: 11px var(--mono); color: var(--muted); background: var(--paper); position: sticky; left: 0; z-index: 1; text-align: right; }
+td.num { text-align: right; font-family: var(--mono); font-size: 12.5px; }
+td.derived { background: var(--derived); color: var(--derived-ink); }
+td.wrong { background: var(--bad-soft); color: var(--bad); font-weight: 700; outline: 2px solid var(--bad); outline-offset: -2px; position: relative; }
+td.wrong .sug { display: block; font-size: 11px; color: var(--good); font-weight: 600; }
+td.ripple { background: var(--warn-soft); color: var(--warn); }
+td.fdbad { background: var(--warn-soft); color: var(--warn); font-weight: 600; }
+td.edit { cursor: text; }
+td.edit:hover { outline: 1px dashed var(--accent); outline-offset: -2px; }
+td.edit:focus { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--paper); color: var(--ink); }
+td.fixed { background: var(--good-soft); color: var(--good); font-weight: 600; }
+tr.sum td { font-weight: 700; border-top: 2px solid var(--line2); }
+tr.sum td.ok { color: var(--good); }
+@keyframes flash { 0% { background: #ffe066; color: #000; } 100% { } }
+td.flash { animation: flash 1.1s ease-out; }
+td.focus { animation: flash 1.6s ease-out; }
+.more { padding: 12px; text-align: center; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); margin-top: 10px; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 5px; }
+.exports { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; align-items: center; }
+.exports .meta { flex: 1 1 300px; }
+footer { color: var(--muted); font-size: 12.5px; padding: 30px 0; border-top: 1px solid var(--line); margin-top: 30px; }
+.spinner { display: none; color: var(--muted); margin: 18px auto 0; max-width: 420px; font-size: 13.5px; }
+.track { height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; margin-bottom: 8px; }
+.bar { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+.sheetpick { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.sheetpick .btn { padding: 4px 10px; font-size: 13px; }
+.sheetpick .btn.on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+button:disabled { opacity: .55; cursor: progress; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo" id="home">un<b>bake</b></div>
+    <div class="tag">formula archaeology for spreadsheets</div>
+  </header>
+
+  <section id="landing">
+    <div class="hero">Somebody exported the spreadsheet. The formulas are gone — <em>but the numbers still remember them.</em></div>
+    <p class="sub">Drop in a CSV or Excel file of plain values. Unbake works out the formulas that most likely produced each column — exact coefficients, lookups, tax tables, running totals — then flags the cells that break them and suggests the most likely slip (swapped digits, a slipped decimal point…). Suggestions are inferences from the data, not proof: always check them against the source.</p>
+
+    <div id="drop">
+      <div class="big">Drop a .csv or .xlsx here</div>
+      <div class="meta">or</div>
+      <div class="row">
+        <button class="btn primary" id="pick">Choose a file…</button>
+        <button class="btn" id="pasteBtn">Paste CSV text</button>
+        <input type="file" id="file" accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls,.ods,text/csv" hidden>
+      </div>
+      <div id="paste"><textarea id="pasteText" placeholder="Qty,Price,Total&#10;3,9.99,29.97&#10;…"></textarea><div class="row"><button class="btn primary" id="pasteGo">Unbake it</button></div></div>
+      <div class="spinner" id="spin"><div class="track"><div class="bar" id="bar"></div></div><div id="spinLabel">Reading the sheet…</div></div>
+      <div class="err" id="err"></div>
+    </div>
+
+    <h2 style="margin-top:34px">Or start with a dead export</h2>
+    <div class="samples" id="samples"></div>
+
+    <div class="how">
+      <div><b>1 · Hypothesise</b>For every numeric column, Unbake builds a library of candidate terms — other columns, their products and ratios, the column's own previous row, lookup tables keyed by text columns.</div>
+      <div><b>2 · Survive the typos</b>RANSAC fits each combination from tiny random row subsets, so a few wrong cells can't bend the answer. Coefficients snap to the simplest number that loses no rows: 0.0825, 1.5, 1/3.</div>
+      <div><b>3 · Blame</b>Where rows break a formula, a solver asks which single cell, if corrected, repairs the most breaks without breaking anything else — and whether the fix looks like a human slip.</div>
+    </div>
+  </section>
+
+  <section id="results">
+    <div class="topline">
+      <div class="headline" id="headline"></div>
+      <button class="btn" id="back">← Another file</button>
+    </div>
+    <div class="grid">
+      <div class="card panel">
+        <h2>Recovered formulas</h2>
+        <div id="formulas"></div>
+        <div class="extra" id="extra"></div>
+      </div>
+      <div style="display:grid; gap:18px; align-content:start">
+        <div class="card panel">
+          <h2>Suspect cells</h2>
+          <div id="fixes"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card panel" id="graph" style="margin-top:18px"><h2>How the sheet was wired</h2><div id="graphSvg"></div></div>
+
+    <div class="tablebar">
+      <h2>The sheet</h2>
+      <div class="seg" id="mode"><button data-m="audit" class="on">As typed</button><button data-m="live">Alive again</button></div>
+      <div class="hint" id="hint"></div>
+    </div>
+    <div class="card tbl" id="tbl"></div>
+    <div class="legend" id="legend"></div>
+    <div class="exports">
+      <button class="btn primary" id="dlLiving">Download living spreadsheet</button>
+      <button class="btn" id="dlFixed">Download corrected values</button>
+      <div class="meta">The living spreadsheet is a CSV whose derived cells are real formulas (<code>=ROUND(H2*I2,2)</code>, <code>SWITCH</code> lookups, <code>SUM</code> totals). Open it in Excel, Google Sheets or LibreOffice and it calculates again.</div>
+    </div>
+  </section>
+
+  <footer><b>Privacy:</b> your file never leaves this browser tab. There is no upload, no server-side processing, no analytics, no cookies and no AI service. You can verify it: open your browser's network tab, or download the page and run it offline.
+  Suspect-cell suggestions are statistical inferences — check them against your source records before acting on them. ·
+  Open source under the MIT license · Excel reading by <a href="https://sheetjs.com" style="color:inherit">SheetJS</a> (Apache-2.0).</footer>
+</div>
+
+<!-- bump ?v= on every deploy so browsers (and the worker) never run a stale engine -->
+<script src="src/engine.js?v=1.1.0"></script>
+<script src="src/samples.js?v=1.1.0"></script>
+<script src="src/app.js?v=1.1.0"></script>
+</body>
+</html>

@@ -2,7 +2,7 @@
 
 **Formula archaeology for spreadsheets.**
 
-When a spreadsheet gets exported to CSV (or a billing system, bank, or payroll tool hands you one), every formula is replaced by the number it happened to produce. Unbake works backwards from those numbers. It figures out the formulas that must have made them, then uses those formulas to find the cells someone typed wrong and to say what kind of mistake it was.
+When a spreadsheet gets exported to CSV or a values-only Excel file (or a billing system, bank, or payroll tool hands you one), every formula is replaced by the number it happened to produce. Unbake works backwards from those numbers. It figures out the formulas that must have made them, then uses those formulas to find the cells someone typed wrong and to say what kind of mistake it was.
 
 ```
 Subtotal = Qty × Unit Price                         34/36 rows exact
@@ -13,7 +13,7 @@ row 8   Unit Price  $239.95 → $329.95   Two digits swapped (32 → 23). Repair
 row 31  Total     $2,870.40 → $287.04   Decimal point slipped (×10).
 ```
 
-Unbake makes no AI calls and uses no servers or dependencies. It's plain JavaScript running in your browser.
+Unbake makes no AI calls and needs no server. It's plain JavaScript running in your browser; the only third-party code is SheetJS, vendored for reading Excel files.
 
 ## Run it
 
@@ -21,11 +21,11 @@ Unbake makes no AI calls and uses no servers or dependencies. It's plain JavaScr
 python3 -m http.server 8737
 ```
 
-Open http://localhost:8737 and click one of the three sample "dead exports", or drop in any CSV of your own. Opening `index.html` straight from disk also works.
+Open http://localhost:8737 and click one of the three sample "dead exports", or drop in a CSV, `.xlsx`, `.xls` or `.ods` file of your own. Opening `index.html` straight from disk also works (analysis then runs on the main thread, because browsers block Web Workers on `file://`).
 
 Things to try:
 1. Read the **Recovered formulas**. The tax rates, prices, the 1.5× overtime multiplier and the running balance all come out of the data. Nothing was hand-written.
-2. In **Cells someone typed wrong**, click an entry to jump to the red cell. "Root cause" means a single typo knocked out more than one calculation.
+2. In **Suspect cells**, click an entry to jump to the red cell. "Root cause" means a single typo knocked out more than one calculation.
 3. Switch the table to **Alive again**. The formulas are live, the typos are fixed, and every white cell can be edited. Change a quantity and watch everything downstream recalculate.
 4. **Download living spreadsheet**. You get a CSV whose derived cells are real formulas (`=ROUND(H2*I2,2)`, `SWITCH(...)` lookups, `=SUM(D2:D53)`). Open it in Excel, Google Sheets or LibreOffice and it calculates again.
 
@@ -34,7 +34,7 @@ Command line:
 ```bash
 node cli.js --sample invoices          # or ledger / payroll
 node cli.js your.csv --living out.csv  # writes the formula-restored spreadsheet
-npm test                               # 14 tests, node:test, no deps
+npm test                               # 16 tests, node:test, no deps
 ```
 
 ## Extra test files (`examples/`)
@@ -46,10 +46,12 @@ Drop these on the page or run `node cli.js examples/<file>`. Each has typos plan
 | `1-sales-commissions.csv` | `Revenue = Units × Unit Price`, `Commission = round(Revenue × rate(Region), 2)` (4 regional rates), `Payout = Commission + Bonus` | swapped digits in a Revenue, a wrong Payout, an extra zero in Units |
 | `2-savings-compound-interest.csv` | `Balance = round(1.004 × previous Balance + Deposit − Withdrawal, 2)` (0.4%/month compounding) | swapped digits, decimal slip |
 | `3-gradebook-weights.csv` | `Final = round(0.25×Homework + 0.35×Midterm + 0.40×Exam, 1)` | Midterm typed 85 for 58; one Final hand-curved +5 (honestly ambiguous: Unbake suggests "Homework 96 → 76" and lists "Final 75.5" as the alternative) |
+| `4-payroll-workbook.xlsx` | Two sheets. *Payroll* is the payroll sample as values; *Orders* still has live `=B*C` formulas, so you can compare Unbake's answer with the real one | same as the payroll sample |
+| `5-german-invoice-semicolon.csv` | Semicolon-delimited, `1.234,56 €` numbers: `Netto = Menge × Preis`, `MwSt = round(0.19 × Netto, 2)`, `Brutto = Netto + MwSt` | an extra zero in one quantity |
 
 ## How it works (`src/engine.js`)
 
-1. **Parsing.** CSV with delimiter detection (`, ; tab |`). Numbers can come as `$1,234.50`, `(12.00)`, `7.25%` or `-€3`. Each column's printed precision is recorded, because that precision decides how close a formula has to land to count as exact.
+1. **Parsing.** CSV with delimiter detection (`, ; tab |`), or Excel/ODS via SheetJS (the largest sheet is picked; you can switch sheets). Numbers can come as `$1,234.50`, `(12.00)`, `7.25%`, `-€3`, `1.234,56 €`, `1 234,5`, `1'234.50`, `USD 12` or `150-`. Each column decides on its own whether it uses a decimal comma, from its unambiguous cells. Each column's printed precision is recorded, because that precision decides how close a formula has to land to count as exact.
 2. **Hypothesis library.** For each numeric column Unbake builds candidate terms: the constant 1, every other column X, every product X·Y, every ratio X÷Y, and the column's own value in the previous row (which covers running totals and sequences).
 3. **Robust search.** Combinations of 1–4 terms are fitted with **RANSAC**: solve exactly from a minimal random set of rows, then count how many other rows agree. A few typos can't pull the fit off course. Survivors are refit by least squares on their inliers. Each coefficient is then **snapped** to the simplest number (fewest decimals, then small fractions) that loses no inliers. That is how `0.0824999…` becomes `0.0825` and `1.4999…` becomes `1.5`. It also detects whether the column was `ROUND`ed.
 4. **Lookups and rate tables.** A column might be a function of a text key (`Unit Price = lookup(SKU)`), or a numeric column times a per-key rate (`Tax = Net × rate(State)`).
@@ -59,7 +61,7 @@ Drop these on the page or run `node cli.js examples/<file>`. Each has typos plan
 
 ## Verified
 
-- `npm test`: 14 tests pass. They cover:
+- `npm test`: 16 tests pass. They cover:
   - Number and CSV parsing.
   - Typo diagnosis.
   - **Each sample recovers exactly the planted formulas, with exactly the planted typos and no false positives.** This includes the exact tax-rate and price tables and the 1.5 overtime coefficient.
@@ -68,8 +70,10 @@ Drop these on the page or run `node cli.js examples/<file>`. Each has typos plan
   - Cell references in the living-CSV export.
   - Live recompute propagation.
   - Error messages.
-- Checked by hand in the browser: all three samples, live editing (changing a Qty recalculated its 4 dependents), and the layout at desktop and phone width.
-- Performance: the samples analyse in under 100 ms. A 3,000-row × 15-column sheet takes about 3 s.
+  - European formats (a semicolon-delimited German invoice with 19% VAT).
+  - Results surviving the Web Worker boundary (structured clone and re-hydrate).
+- Checked by hand in the browser: all three samples, live editing (changing a Qty recalculated its 4 dependents), the layout at desktop and phone width, an `.xlsx` workbook with sheet switching, the German CSV with live editing in German number formatting, the Web Worker with progress bar, and the main-thread fallback.
+- Performance: the samples analyse in under 100 ms. A 3,000-row × 15-column sheet takes about 3 s in a Web Worker, and the page stays responsive throughout.
 
 ## Limitations (honest)
 
@@ -77,15 +81,37 @@ Drop these on the page or run `node cli.js examples/<file>`. Each has typos plan
 - A formula needs to hold exactly on at least 80% of rows, and there must be at least 6 rows. Data with measurement noise isn't "baked" and correctly yields nothing.
 - If A and B are tied by an exact relation, Unbake may report it the other way round (e.g. `e = ratio × (1 + f)` instead of `ratio = e ÷ (1 + f)`) when the true direction needs a term outside its library.
 - Integer columns with a small range don't get `ROUND` hypotheses, because rounding to ±0.5 there would make coincidences too easy.
-- Analysis runs on the main thread. Very wide sheets (more than 20 numeric columns) get slow because the product and ratio library grows quadratically.
+- Very wide sheets (more than 20 numeric columns) get slow because the product and ratio library grows quadratically. The page stays responsive, but you wait.
+- The living-CSV export always uses a comma delimiter and dot decimals. Excel set to a European locale may mis-read it; Google Sheets and LibreOffice handle it.
+- Excel files are read as displayed values; any formulas still inside are ignored (the app tells you how many there were).
 - The blame solver repairs one cell at a time. Two typos in the same row that interact can end up listed as "no single-cell fix".
+
+## Privacy
+
+Your file never leaves the browser tab. There is no upload, no server processing, no analytics, no cookies and no AI service. You can check this in the browser's network tab, or download the page and run it offline.
+
+## Deploy
+
+It's a static site, so any static host works for free: GitHub Pages, Cloudflare Pages or Netlify. Publish the repository root; there is no build step.
+
+```bash
+# GitHub Pages: push to GitHub, then Settings → Pages → Deploy from branch → main / (root)
+```
+
+When you ship an update, bump the `?v=` version on the three `<script>` tags in `index.html`. The worker reads the same version, so browsers never mix a cached old engine with a new page.
+
+## License
+
+MIT, see [LICENSE](LICENSE). SheetJS in `vendor/` is Apache 2.0, see [vendor/xlsx.LICENSE](vendor/xlsx.LICENSE).
 
 ## Files
 
 ```
 index.html         UI (open directly, or serve)
 src/engine.js      the whole discovery + blame engine (browser + Node)
-src/app.js         rendering, live recalculation, exports
+src/app.js         rendering, live recalculation, exports, icons
+src/worker.js      runs the engine off the main thread
+vendor/            SheetJS 0.20.3 for Excel/ODS input
 src/samples.js     generated demo data with planted typos and ground truth
 cli.js             command-line front end
 test/              node:test suite

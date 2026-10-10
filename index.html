@@ -73,7 +73,13 @@ button { font: inherit; cursor: pointer; }
 .fx { font: 14.5px/1.6 var(--mono); }
 .fx .tg { font-weight: 700; }
 .fx .col { color: var(--derived-ink); background: var(--derived); border-radius: 5px; padding: 0 4px; }
-.fx .col.prev::before { content: "↑"; opacity: .7; margin-right: 1px; }
+.fx .col.prev .ic { width: .85em; height: .85em; margin-right: 2px; opacity: .75; }
+.ic { width: 1.05em; height: 1.05em; vertical-align: -0.17em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.btn .ic { margin-right: 6px; }
+.sample .ic.big { width: 26px; height: 26px; color: var(--accent); }
+#drop .ic.big { width: 34px; height: 34px; color: var(--accent); margin-bottom: 6px; }
+.how .ic { color: var(--accent); margin-right: 6px; }
+.ok-ic { color: var(--good); } .bad-ic { color: var(--bad); }
 .fx .num { color: var(--warn); font-weight: 600; }
 .fx .fn { color: var(--muted); }
 .fx .op { color: var(--muted); white-space: pre; }
@@ -162,18 +168,19 @@ button:disabled { opacity: .55; cursor: progress; }
   </header>
 
   <section id="landing">
-    <div class="hero">Somebody exported the spreadsheet. The formulas are gone — <em>but the numbers still remember them.</em></div>
-    <p class="sub">Drop in a CSV or Excel file of plain values. Unbake works out the formulas that most likely produced each column — exact coefficients, lookups, tax tables, running totals — then flags the cells that break them and suggests the most likely slip (swapped digits, a slipped decimal point…). Suggestions are inferences from the data, not proof: always check them against the source.</p>
+    <div class="hero">Somebody exported the spreadsheet. The formulas are gone, <em>but the numbers still remember them.</em></div>
+    <p class="sub">Drop in a CSV or Excel file of plain values. Unbake works out the formulas that most likely produced each column: exact coefficients, lookups, tax tables and running totals. Then it flags the cells that break them and suggests the most likely slip, such as swapped digits or a slipped decimal point. Suggestions are inferences from the data, not proof, so always check them against the source.</p>
 
     <div id="drop">
+      <i data-ic="sheet" data-cls="big"></i>
       <div class="big">Drop a .csv or .xlsx here</div>
       <div class="meta">or</div>
       <div class="row">
-        <button class="btn primary" id="pick">Choose a file…</button>
-        <button class="btn" id="pasteBtn">Paste CSV text</button>
+        <button class="btn primary" id="pick"><i data-ic="upload"></i>Choose a file</button>
+        <button class="btn" id="pasteBtn"><i data-ic="clipboard"></i>Paste CSV text</button>
         <input type="file" id="file" accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls,.ods,text/csv" hidden>
       </div>
-      <div id="paste"><textarea id="pasteText" placeholder="Qty,Price,Total&#10;3,9.99,29.97&#10;…"></textarea><div class="row"><button class="btn primary" id="pasteGo">Unbake it</button></div></div>
+      <div id="paste"><textarea id="pasteText" placeholder="Qty,Price,Total&#10;3,9.99,29.97&#10;…"></textarea><div class="row"><button class="btn primary" id="pasteGo"><i data-ic="arrowRight"></i>Unbake it</button></div></div>
       <div class="spinner" id="spin"><div class="track"><div class="bar" id="bar"></div></div><div id="spinLabel">Reading the sheet…</div></div>
       <div class="err" id="err"></div>
     </div>
@@ -182,16 +189,16 @@ button:disabled { opacity: .55; cursor: progress; }
     <div class="samples" id="samples"></div>
 
     <div class="how">
-      <div><b>1 · Hypothesise</b>For every numeric column, Unbake builds a library of candidate terms — other columns, their products and ratios, the column's own previous row, lookup tables keyed by text columns.</div>
-      <div><b>2 · Survive the typos</b>RANSAC fits each combination from tiny random row subsets, so a few wrong cells can't bend the answer. Coefficients snap to the simplest number that loses no rows: 0.0825, 1.5, 1/3.</div>
-      <div><b>3 · Blame</b>Where rows break a formula, a solver asks which single cell, if corrected, repairs the most breaks without breaking anything else — and whether the fix looks like a human slip.</div>
+      <div><b><i data-ic="flask"></i>Hypothesise</b>For every numeric column, Unbake builds a library of candidate terms: other columns, their products and ratios, the column's own previous row, and lookup tables keyed by text columns.</div>
+      <div><b><i data-ic="shield"></i>Survive the typos</b>RANSAC fits each combination from tiny random row subsets, so a few wrong cells can't bend the answer. Coefficients snap to the simplest number that loses no rows: 0.0825, 1.5, 1/3.</div>
+      <div><b><i data-ic="search"></i>Blame</b>Where rows break a formula, a solver asks which single cell, if corrected, repairs the most breaks without breaking anything else, and whether the fix looks like a human slip.</div>
     </div>
   </section>
 
   <section id="results">
     <div class="topline">
       <div class="headline" id="headline"></div>
-      <button class="btn" id="back">← Another file</button>
+      <button class="btn" id="back"><i data-ic="arrowLeft"></i>Another file</button>
     </div>
     <div class="grid">
       <div class="card panel">
@@ -216,20 +223,20 @@ button:disabled { opacity: .55; cursor: progress; }
     <div class="card tbl" id="tbl"></div>
     <div class="legend" id="legend"></div>
     <div class="exports">
-      <button class="btn primary" id="dlLiving">Download living spreadsheet</button>
-      <button class="btn" id="dlFixed">Download corrected values</button>
+      <button class="btn primary" id="dlLiving"><i data-ic="download"></i>Download living spreadsheet</button>
+      <button class="btn" id="dlFixed"><i data-ic="download"></i>Download corrected values</button>
       <div class="meta">The living spreadsheet is a CSV whose derived cells are real formulas (<code>=ROUND(H2*I2,2)</code>, <code>SWITCH</code> lookups, <code>SUM</code> totals). Open it in Excel, Google Sheets or LibreOffice and it calculates again.</div>
     </div>
   </section>
 
-  <footer><b>Privacy:</b> your file never leaves this browser tab. There is no upload, no server-side processing, no analytics, no cookies and no AI service. You can verify it: open your browser's network tab, or download the page and run it offline.
-  Suspect-cell suggestions are statistical inferences — check them against your source records before acting on them. ·
-  Open source under the MIT license · Excel reading by <a href="https://sheetjs.com" style="color:inherit">SheetJS</a> (Apache-2.0).</footer>
+  <footer><i data-ic="lock"></i> <b>Privacy:</b> your file never leaves this browser tab. There is no upload, no server processing, no analytics, no cookies and no AI service. You can verify it: open your browser's network tab, or download the page and run it offline.
+  Suspect cell suggestions are statistical inferences, so check them against your source records before acting on them.<br>
+  Open source under the MIT license · Excel reading by <a href="https://sheetjs.com" style="color:inherit">SheetJS</a> (Apache 2.0).</footer>
 </div>
 
 <!-- bump ?v= on every deploy so browsers (and the worker) never run a stale engine -->
-<script src="src/engine.js?v=1.1.0"></script>
-<script src="src/samples.js?v=1.1.0"></script>
-<script src="src/app.js?v=1.1.0"></script>
+<script src="src/engine.js?v=1.2.0"></script>
+<script src="src/samples.js?v=1.2.0"></script>
+<script src="src/app.js?v=1.2.0"></script>
 </body>
 </html>

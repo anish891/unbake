@@ -2,3 +2,5 @@
 node_modules/
 *.living.csv
 *.corrected.csv
+.claude/
+examples/       

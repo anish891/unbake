@@ -1,9 +1,33 @@
-/* Unbake UI — renders what the engine discovers. No logic here invents results. */
+/* Unbake UI: renders what the engine discovers. No logic here invents results. */
 (function () {
   'use strict';
   const U = window.Unbake, $ = (id) => document.getElementById(id);
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const ROW_LIMIT = 400;
+
+  // Inline SVG icons (stroke style, 24x24 grid). No emoji, no icon font, no network.
+  const ICONS = {
+    receipt: '<path d="M5 3v18l2.3-1.5L9.7 21l2.3-1.5 2.3 1.5 2.4-1.5L19 21V3l-2.3 1.5L14.3 3 12 4.5 9.7 3 7.3 4.5Z"/><path d="M9 9h6M9 13h6M9 17h3"/>',
+    landmark: '<path d="M3 21h18M5 21v-9M9.7 21v-9M14.3 21v-9M19 21v-9M2.5 9.5 12 3l9.5 6.5Z"/>',
+    briefcase: '<rect x="2.5" y="7" width="19" height="13.5" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2M2.5 13h19"/>',
+    sheet: '<path d="M14 2.5H6.5a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V8Z"/><path d="M14 2.5V8h5.5M8 12.5h8M8 16.5h8M12 12.5v6"/>',
+    upload: '<path d="M12 15V3.5M7 8.5l5-5 5 5M4 15v3.5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V15"/>',
+    download: '<path d="M12 3.5V15M7 10l5 5 5-5M4 19.5h16"/>',
+    clipboard: '<rect x="8" y="2.5" width="8" height="4" rx="1"/><path d="M16 4.5h2a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2h2"/>',
+    arrowRight: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+    arrowLeft: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
+    arrowUp: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+    check: '<path d="M5 12.5l4.5 4.5L19.5 7"/>',
+    x: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
+    flask: '<path d="M9 3h6M10 3v6.5L4.6 18.8A1.5 1.5 0 0 0 5.9 21h12.2a1.5 1.5 0 0 0 1.3-2.2L14 9.5V3M7.5 15h9"/>',
+    shield: '<path d="M12 21.5s7.5-3.5 7.5-9.5V5.5L12 2.5 4.5 5.5V12c0 6 7.5 9.5 7.5 9.5Z"/><path d="M9 12l2 2 4-4"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="M20.5 20.5l-4.5-4.5"/>',
+    lock: '<rect x="4.5" y="11" width="15" height="10" rx="2"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/>',
+    sigma: '<path d="M17.5 7V4h-11l6 8-6 8h11v-3"/>',
+    alert: '<path d="M12 3.5 2.5 20h19Z"/><path d="M12 10v4.5M12 17.5v.01"/>',
+  };
+  const ic = (name, cls) => `<svg class="ic${cls ? ' ' + cls : ''}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ''}</svg>`;
+  document.querySelectorAll('i[data-ic]').forEach((el) => { el.outerHTML = ic(el.dataset.ic, el.dataset.cls); });
 
   let R = null, fileName = 'sheet', mode = 'audit', overrides = {}, live = null, showAll = false;
 
@@ -11,8 +35,8 @@
   const samples = window.UnbakeSamples.all();
   $('samples').innerHTML = samples.map((s) => `
     <button class="sample" data-id="${s.id}">
-      <div class="ic">${s.icon}</div><div class="t">${esc(s.title)}</div><div class="d">${esc(s.blurb)}</div>
-      <div class="go">Unbake it →</div>
+      ${ic(s.icon, 'big')}<div class="t">${esc(s.title)}</div><div class="d">${esc(s.blurb)}</div>
+      <div class="go">Unbake it ${ic('arrowRight')}</div>
     </button>`).join('');
   $('samples').addEventListener('click', (e) => {
     const b = e.target.closest('.sample'); if (!b) return;
@@ -33,7 +57,7 @@
   let sheets = null, sheetIdx = 0, workbookNote = '';
 
   function readFile(f) {
-    if (f.size > 25e6) return showErr('That file is over 25 MB. Unbake is built for spreadsheet-sized data; try exporting just the sheet you care about.');
+    if (f.size > 25e6) return showErr('That file is over 25 MB. Unbake is built for spreadsheet sized data, so try exporting just the sheet you care about.');
     const r = new FileReader();
     const base = f.name.replace(/\.[^.]+$/, '');
     r.onerror = () => showErr('Could not read that file.');
@@ -164,7 +188,7 @@
   }
   function tokensHTML(f) {
     return f.tokens.map((t) => t.t === 'col'
-      ? `<span class="col${t.prev ? ' prev' : ''}" data-c="${t.c}" title="${t.prev ? 'value from the previous row' : 'column ' + R.cols[t.c].letter}">${esc(t.s)}</span>`
+      ? `<span class="col${t.prev ? ' prev' : ''}" data-c="${t.c}" title="${t.prev ? 'value from the previous row' : 'column ' + R.cols[t.c].letter}">${t.prev ? ic('arrowUp') : ''}${esc(t.s)}</span>`
       : `<span class="${t.t}">${esc(t.s)}</span>`).join('');
   }
 
@@ -176,7 +200,7 @@
     const derivedCells = R.formulas.reduce((s, f) => s + f.evaluable, 0);
     $('headline').innerHTML = nf
       ? `Recovered <span class="n">${nf} formula${nf > 1 ? 's' : ''}</span> behind ${derivedCells.toLocaleString()} cells` +
-        (nb ? ` — and <span class="bad">${nb} suspect cell${nb > 1 ? 's' : ''}</span> that break them.` : ' — every derived cell is consistent.')
+        (nb ? `, plus <span class="bad">${nb} suspect cell${nb > 1 ? 's' : ''}</span> that break them.` : '. Every derived cell is consistent.')
       : 'No exact formulas found in this sheet.';
     $('headline').insertAdjacentHTML('beforeend', `<div class="meta">${R.n} rows × ${R.cols.length} columns · searched in ${R.stats.ms} ms · ${esc(fileName)}</div>`);
     if (sheets && sheets.length > 1) {
@@ -194,13 +218,13 @@
   function renderFormulas() {
     const box = $('formulas');
     if (!R.formulas.length) {
-      box.innerHTML = '<div class="empty">Every numeric column looks independent: no column can be reproduced exactly from the others on 80%+ of rows. That is a real answer — either this data was typed by hand, or its formulas use inputs that aren’t in the file.</div>';
+      box.innerHTML = '<div class="empty">Every numeric column looks independent: no column can be reproduced exactly from the others on 80%+ of rows. That is a real answer: either this data was typed by hand, or its formulas use inputs that aren’t in the file.</div>';
     } else box.innerHTML = R.formulas.map((f) => {
       const bad = f.anomalies.length;
       let map = '';
       if (f.kind !== 'linear') {
         const entries = [...f.map.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0])));
-        map = '<div class="maptbl">' + entries.slice(0, 24).map(([k, v]) => `<span>${esc(k)} → <b>${f.kind === 'rate' ? +(v * 100).toPrecision(6) + '%' : esc(U.numStr(v))}</b></span>`).join('') + (entries.length > 24 ? `<span>+${entries.length - 24} more</span>` : '') + '</div>';
+        map = '<div class="maptbl">' + entries.slice(0, 24).map(([k, v]) => `<span>${esc(k)} ${ic('arrowRight')} <b>${f.kind === 'rate' ? +(v * 100).toPrecision(6) + '%' : esc(U.numStr(v))}</b></span>`).join('') + (entries.length > 24 ? `<span>+${entries.length - 24} more</span>` : '') + '</div>';
       }
       const firstRow = f.lag ? 1 : 0;
       return `<div class="formula" data-f="${f.id}">
@@ -220,10 +244,10 @@
     });
     const ex = [];
     for (const s of R.summaries) ex.push(s.ok
-      ? `<div>✓ Row ${s.row} <b>${esc(colName(s.col))}</b> is <code>${esc(s.excel)}</code></div>`
-      : `<div>✗ Row ${s.row} <b>${esc(colName(s.col))}</b> claims ${fmtNum(s.col, s.typed)} but the rows above sum to ${fmtNum(s.col, s.sum)}</div>`);
+      ? `<div>${ic('check', 'ok-ic')} Row ${s.row} <b>${esc(colName(s.col))}</b> is <code>${esc(s.excel)}</code></div>`
+      : `<div>${ic('x', 'bad-ic')} Row ${s.row} <b>${esc(colName(s.col))}</b> claims ${fmtNum(s.col, s.typed)} but the rows above sum to ${fmtNum(s.col, s.sum)}</div>`);
     for (const fd of R.fds.slice(0, 6)) ex.push(`<div>Every <b>${esc(colName(fd.from))}</b> has exactly one <b>${esc(colName(fd.to))}</b>` +
-      (fd.violations.length ? ` — <span style="color:var(--warn)">except ${fd.violations.slice(0, 3).map((v) => 'row ' + v.row + ' (“' + esc(v.typed) + '”, expected “' + esc(v.expected) + '”)').join(', ')}</span>` : '') + '</div>');
+      (fd.violations.length ? `, <span style="color:var(--warn)">except ${fd.violations.slice(0, 3).map((v) => 'row ' + v.row + ' (“' + esc(v.typed) + '”, expected “' + esc(v.expected) + '”)').join(', ')}</span>` : '') + '</div>');
     $('extra').innerHTML = ex.length ? '<h2 style="margin-top:16px">Also noticed</h2>' + ex.join('') : '';
   }
 
@@ -242,13 +266,13 @@
         : isInput ? `Explains why <b>${esc(fixes[0])}</b> doesn’t add up on this row` : `Doesn’t match its own formula`;
       return `<div class="fix" data-i="${i}">
         <div class="where">row ${c.row}</div>
-        <div class="what"><b>${esc(colName(c.col))}</b> &nbsp;<s>${esc(typed)}</s> → <ins>${esc(fmtNum(c.col, c.suggested))}</ins>${c.fixCount > 1 ? '<span class="root">root cause</span>' : ''}</div>
+        <div class="what"><b>${esc(colName(c.col))}</b> &nbsp;<s>${esc(typed)}</s> ${ic('arrowRight')} <ins>${esc(fmtNum(c.col, c.suggested))}</ins>${c.fixCount > 1 ? '<span class="root">' + ic('alert') + ' root cause</span>' : ''}</div>
         <div class="why"><b>${esc(c.diagnosis.label[0].toUpperCase() + c.diagnosis.label.slice(1))}.</b> ${because}.${c.alternatives && c.alternatives.length ? `<br>Less likely: ${c.alternatives.map((a) => `${esc(colName(a.col))} should be ${esc(fmtNum(a.col, a.suggested))} (${esc(a.diagnosis.label)})`).join('; ')}.` : ''}</div>
       </div>`;
     }).join('') + R.unexplained.map((u) => `<div class="fix" data-u="${u.pos}:${u.col}">
         <div class="where">row ${u.row}</div>
         <div class="what"><b>${esc(colName(u.col))}</b> is ${esc(fmtNum(u.col, u.typed))}, formula says ${esc(fmtNum(u.col, u.expected))}</div>
-        <div class="why">No single-cell fix explains this one — possibly a manual override.</div></div>`).join('');
+        <div class="why">No single cell fix explains this one. It may be a manual override.</div></div>`).join('');
     box.querySelectorAll('.fix').forEach((el) => el.onclick = () => {
       if (el.dataset.i !== undefined) { const c = R.corrections[+el.dataset.i]; focusCell(c.pos, c.col); }
       else { const [p, c] = el.dataset.u.split(':').map(Number); focusCell(p, c); }
@@ -331,7 +355,7 @@
     const info = cellInfo();
     const cols = R.cols;
     const isDerived = (c) => cols[c].formula !== undefined;
-    let h = '<table><thead><tr><th></th>' + cols.map((c) => `<th data-c="${c.index}"><span class="l">${c.letter}</span>${esc(c.name)}${c.formula !== undefined ? '<span class="f" title="recovered formula">ƒ</span>' : ''}</th>`).join('') + '</tr></thead><tbody>';
+    let h = '<table><thead><tr><th></th>' + cols.map((c) => `<th data-c="${c.index}"><span class="l">${c.letter}</span>${esc(c.name)}${c.formula !== undefined ? '<span class="f" title="recovered formula">' + ic('sigma') + '</span>' : ''}</th>`).join('') + '</tr></thead><tbody>';
     const limit = showAll ? R.n : Math.min(R.n, ROW_LIMIT);
     for (let p = 0; p < limit; p++) {
       h += `<tr><td class="rn">${R.rowNum[p]}</td>`;
@@ -347,8 +371,8 @@
         if (mode === 'audit') {
           content = esc(c.raw[p]);
           const w = info.wrong.get(k), r = info.ripple.get(k);
-          if (w) { cls.push('wrong'); content += `<span class="sug">→ ${esc(fmtNum(c.index, w.suggested))}</span>`; title = w.diagnosis.label; }
-          else if (r) { cls.push('ripple'); title = `Doesn’t match ${c.name} = formula — knocked out by a typo elsewhere in this row`; }
+          if (w) { cls.push('wrong'); content += `<span class="sug">${ic('arrowRight')} ${esc(fmtNum(c.index, w.suggested))}</span>`; title = w.diagnosis.label; }
+          else if (r) { cls.push('ripple'); title = `Doesn’t match the ${c.name} formula because of a typo elsewhere in this row`; }
           else if (isDerived(c.index)) cls.push('derived');
         } else {
           const v = live.get(c.index)[p];
@@ -383,7 +407,7 @@
 
     $('hint').innerHTML = mode === 'audit'
       ? 'Exactly as exported. Hover a red cell for the diagnosis; click a typo on the right to jump to it.'
-      : 'The formulas are live again and the typos are repaired. <b>Edit any white input cell</b> — every cell that depends on it recalculates.';
+      : 'The formulas are live again and the typos are repaired. <b>Edit any white input cell</b> and every cell that depends on it recalculates.';
     $('legend').innerHTML = mode === 'audit'
       ? '<span><i style="background:var(--derived)"></i>computed by a recovered formula</span><span><i style="background:var(--bad-soft);outline:2px solid var(--bad)"></i>suspect: breaks a formula (likely fix below)</span><span><i style="background:var(--warn-soft)"></i>inconsistent only because of a typo elsewhere</span>'
       : '<span><i style="background:var(--derived)"></i>live formula (hover for the spreadsheet syntax)</span><span><i style="background:var(--good-soft)"></i>repaired input</span><span><i style="background:var(--paper);outline:1px dashed var(--accent)"></i>editable input</span>';
@@ -412,7 +436,7 @@
             if (el) { el.classList.add('flash'); changed++; }
           }
         });
-        $('hint').innerHTML = `Changed ${esc(R.cols[c].name)} on row ${R.rowNum[p]} → <b>${changed - 1} dependent cell${changed - 1 === 1 ? '' : 's'} recalculated</b>.`;
+        $('hint').innerHTML = `Changed ${esc(R.cols[c].name)} on row ${R.rowNum[p]}: <b>${changed - 1} dependent cell${changed - 1 === 1 ? '' : 's'} recalculated</b>.`;
       });
     });
   }

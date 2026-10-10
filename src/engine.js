@@ -623,15 +623,15 @@
       const diff = [];
       for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) diff.push(i);
       if (diff.length === 2 && diff[1] === diff[0] + 1 && a[diff[0]] === b[diff[1]] && a[diff[1]] === b[diff[0]]) {
-        return { kind: 'swap', score: 0.95, label: 'two digits swapped (' + b.slice(diff[0], diff[0] + 2) + ' → ' + a.slice(diff[0], diff[0] + 2) + ')' };
+        return { kind: 'swap', score: 0.95, label: 'two digits swapped (' + b.slice(diff[0], diff[0] + 2) + ' typed as ' + a.slice(diff[0], diff[0] + 2) + ')' };
       }
-      if (diff.length === 1) return { kind: 'digit', score: 0.8, label: 'one digit mistyped (' + b[diff[0]] + ' → ' + a[diff[0]] + ')' };
+      if (diff.length === 1) return { kind: 'digit', score: 0.8, label: 'one digit mistyped (' + b[diff[0]] + ' typed as ' + a[diff[0]] + ')' };
     }
     const delOne = (long, short) => { for (let i = 0; i < long.length; i++) if (long.slice(0, i) + long.slice(i + 1) === short) return true; return false; };
     if (a.length + 1 === b.length && delOne(b, a)) return { kind: 'dropped', score: 0.75, label: 'a digit was dropped' };
     if (a.length === b.length + 1 && delOne(a, b)) return { kind: 'extra', score: 0.75, label: 'an extra digit was typed' };
     const rel = Math.abs(delta) / Math.max(Math.abs(correct), 1e-9);
-    if (rel < 0.005) return { kind: 'drift', score: 0.25, label: 'slightly off (' + (delta > 0 ? '+' : '−') + fmt(Math.abs(delta), d) + ') — stale or hand-rounded?' };
+    if (rel < 0.005) return { kind: 'drift', score: 0.25, label: 'slightly off (' + (delta > 0 ? '+' : '−') + fmt(Math.abs(delta), d) + '), possibly stale or rounded by hand' };
     return { kind: 'mismatch', score: 0.05, label: 'off by ' + (delta > 0 ? '+' : '−') + fmt(Math.abs(delta), d) };
   }
 

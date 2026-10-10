@@ -4,3 +4,4 @@ node_modules/
 *.corrected.csv
 .claude/
 examples/      
+.vercel

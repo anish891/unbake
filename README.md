@@ -37,18 +37,6 @@ node cli.js your.csv --living out.csv  # writes the formula-restored spreadsheet
 npm test                               # 16 tests, node:test, no deps
 ```
 
-## Extra test files (`examples/`)
-
-Drop these on the page or run `node cli.js examples/<file>`. Each has typos planted in it.
-
-| File | Hidden formulas | Planted errors |
-|---|---|---|
-| `1-sales-commissions.csv` | `Revenue = Units × Unit Price`, `Commission = round(Revenue × rate(Region), 2)` (4 regional rates), `Payout = Commission + Bonus` | swapped digits in a Revenue, a wrong Payout, an extra zero in Units |
-| `2-savings-compound-interest.csv` | `Balance = round(1.004 × previous Balance + Deposit − Withdrawal, 2)` (0.4%/month compounding) | swapped digits, decimal slip |
-| `3-gradebook-weights.csv` | `Final = round(0.25×Homework + 0.35×Midterm + 0.40×Exam, 1)` | Midterm typed 85 for 58; one Final hand-curved +5 (honestly ambiguous: Unbake suggests "Homework 96 → 76" and lists "Final 75.5" as the alternative) |
-| `4-payroll-workbook.xlsx` | Two sheets. *Payroll* is the payroll sample as values; *Orders* still has live `=B*C` formulas, so you can compare Unbake's answer with the real one | same as the payroll sample |
-| `5-german-invoice-semicolon.csv` | Semicolon-delimited, `1.234,56 €` numbers: `Netto = Menge × Preis`, `MwSt = round(0.19 × Netto, 2)`, `Brutto = Netto + MwSt` | an extra zero in one quantity |
-
 ## How it works (`src/engine.js`)
 
 1. **Parsing.** CSV with delimiter detection (`, ; tab |`), or Excel/ODS via SheetJS (the largest sheet is picked; you can switch sheets). Numbers can come as `$1,234.50`, `(12.00)`, `7.25%`, `-€3`, `1.234,56 €`, `1 234,5`, `1'234.50`, `USD 12` or `150-`. Each column decides on its own whether it uses a decimal comma, from its unambiguous cells. Each column's printed precision is recorded, because that precision decides how close a formula has to land to count as exact.
@@ -92,10 +80,10 @@ Your file never leaves the browser tab. There is no upload, no server processing
 
 ## Deploy
 
-It's a static site, so any static host works for free: GitHub Pages, Cloudflare Pages or Netlify. Publish the repository root; there is no build step.
+It's a static site with no build step, deployed on Vercel. `vercel.json` adds security headers, including a Content-Security-Policy with `connect-src 'none'`: the browser itself blocks the page from sending any network request, so the privacy promise above is enforced, not just stated. Any other static host (GitHub Pages, Cloudflare Pages, Netlify) also works; publish the repository root.
 
 ```bash
-# GitHub Pages: push to GitHub, then Settings → Pages → Deploy from branch → main / (root)
+vercel --prod
 ```
 
 When you ship an update, bump the `?v=` version on the three `<script>` tags in `index.html`. The worker reads the same version, so browsers never mix a cached old engine with a new page.

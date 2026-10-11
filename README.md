@@ -21,20 +21,22 @@ Unbake makes no AI calls and needs no server. It's plain JavaScript running in y
 python3 -m http.server 8737
 ```
 
-Open http://localhost:8737 and click one of the three sample "dead exports", or drop in a CSV, `.xlsx`, `.xls` or `.ods` file of your own. Opening `index.html` straight from disk also works (analysis then runs on the main thread, because browsers block Web Workers on `file://`).
+Open http://localhost:8737 and click one of the four sample "dead exports", or drop in a CSV, `.xlsx`, `.xls` or `.ods` file of your own. Opening `index.html` straight from disk also works (analysis then runs on the main thread, because browsers block Web Workers on `file://`).
 
 Things to try:
 1. Read the **Recovered formulas**. The tax rates, prices, the 1.5× overtime multiplier and the running balance all come out of the data. Nothing was hand-written.
 2. In **Suspect cells**, click an entry to jump to the red cell. "Root cause" means a single typo knocked out more than one calculation.
 3. Switch the table to **Alive again**. The formulas are live, the typos are fixed, and every white cell can be edited. Change a quantity and watch everything downstream recalculate.
-4. **Download living spreadsheet**. You get a CSV whose derived cells are real formulas (`=ROUND(H2*I2,2)`, `SWITCH(...)` lookups, `=SUM(D2:D53)`). Open it in Excel, Google Sheets or LibreOffice and it calculates again.
+4. Open **Sales team payout**. There is no overtime or commission tier column, yet Unbake finds `if(Hours ≥ 40, …)` and `if(Sales > 20000, 0.07 × Sales − 600, 0.04 × Sales)`.
+5. **Download Excel report**. You get an `.xlsx` with the formulas restored (`=ROUND(H2*I2,2)`, `SWITCH(...)` lookups, `IF(...)` rules, `=SUM(D2:D53)`), suspect cells filled red with a comment explaining each one, repaired inputs in green, and two extra sheets listing every suspect cell (with links) and every recovered rule. A plain **Living CSV** with formulas is still available.
+6. Drop in an Excel file that **still has its formulas**. Unbake recovers the formulas from the displayed values alone, says whether they match the file's own, and flags cells where someone typed a number over a formula or used a different formula from the rest of the column.
 
 Command line:
 
 ```bash
 node cli.js --sample invoices          # or ledger / payroll
 node cli.js your.csv --living out.csv  # writes the formula-restored spreadsheet
-npm test                               # 16 tests, node:test, no deps
+npm test                               # 22 tests, node:test, no deps
 ```
 
 ## How it works (`src/engine.js`)
@@ -43,13 +45,14 @@ npm test                               # 16 tests, node:test, no deps
 2. **Hypothesis library.** For each numeric column Unbake builds candidate terms: the constant 1, every other column X, every product X·Y, every ratio X÷Y, and the column's own value in the previous row (which covers running totals and sequences).
 3. **Robust search.** Combinations of 1–4 terms are fitted with **RANSAC**: solve exactly from a minimal random set of rows, then count how many other rows agree. A few typos can't pull the fit off course. Survivors are refit by least squares on their inliers. Each coefficient is then **snapped** to the simplest number (fewest decimals, then small fractions) that loses no inliers. That is how `0.0824999…` becomes `0.0825` and `1.4999…` becomes `1.5`. It also detects whether the column was `ROUND`ed.
 4. **Lookups and rate tables.** A column might be a function of a text key (`Unit Price = lookup(SKU)`), or a numeric column times a per-key rate (`Tax = Net × rate(State)`).
-5. **Occam within noise.** Among candidates that explain nearly as many rows as the best one, the simplest wins. Spreadsheets compute left-to-right, so each column is first explained from columns to its left. Columns still unexplained after that may use any column that doesn't depend on them, so the result is always a DAG.
-6. **Blame solver.** Every row that breaks a formula is a symptom. For each cell those broken rows touch, Unbake solves for the value that would repair them. It throws out any candidate that would break a formula that currently holds. It ranks what's left by how many breaks it repairs, plus how much the correction looks like a human slip: swapped adjacent digits, slipped decimal point, one wrong digit, a dropped or extra digit, a flipped sign. This is how it tells "the Qty was mistyped" apart from "the Subtotal was mistyped", even though both break the same equation.
-7. **Extras.** It also checks `Total` rows against `SUM` of the rows above, and finds text dependencies (every Customer has exactly one State) along with their violations.
+5. **Threshold rules.** When nothing else explains a column, Unbake looks for an `IF`. It finds a formula that fits one regime (at least 30% of rows), checks whether the rows it misses are separated from the rows it fits by a threshold on some column, and fits the other regime on that side alone. The threshold is the roundest number that separates the groups (`20000`, not `24500`), and each branch may be a constant, so `IF(Subtotal >= 50, 0, 5.99)` free-shipping rules are found too.
+6. **Occam within noise.** Among candidates that explain nearly as many rows as the best one, the simplest wins. Spreadsheets compute left-to-right, so each column is first explained from columns to its left. Columns still unexplained after that may use any column that doesn't depend on them, so the result is always a DAG.
+7. **Blame solver.** Every row that breaks a formula is a symptom. For each cell those broken rows touch, Unbake solves for the value that would repair them. It throws out any candidate that would break a formula that currently holds. It ranks what's left by how many breaks it repairs, plus how much the correction looks like a human slip: swapped adjacent digits, slipped decimal point, one wrong digit, a dropped or extra digit, a flipped sign. This is how it tells "the Qty was mistyped" apart from "the Subtotal was mistyped", even though both break the same equation.
+8. **Extras.** It also checks `Total` rows against `SUM` of the rows above, and finds text dependencies (every Customer has exactly one State) along with their violations.
 
 ## Verified
 
-- `npm test`: 16 tests pass. They cover:
+- `npm test`: 22 tests pass. They cover:
   - Number and CSV parsing.
   - Typo diagnosis.
   - **Each sample recovers exactly the planted formulas, with exactly the planted typos and no false positives.** This includes the exact tax-rate and price tables and the 1.5 overtime coefficient.
@@ -60,18 +63,27 @@ npm test                               # 16 tests, node:test, no deps
   - Error messages.
   - European formats (a semicolon-delimited German invoice with 19% VAT).
   - Results surviving the Web Worker boundary (structured clone and re-hydrate).
-- Checked by hand in the browser: all three samples, live editing (changing a Qty recalculated its 4 dependents), the layout at desktop and phone width, an `.xlsx` workbook with sheet switching, the German CSV with live editing in German number formatting, the Web Worker with progress bar, and the main-thread fallback.
-- Performance: the samples analyse in under 100 ms. A 3,000-row × 15-column sheet takes about 3 s in a Web Worker, and the page stays responsive throughout.
+  - Threshold rules: the payout sample's exact 40 hour and $20,000 thresholds, and a free-shipping rule with constant branches and a `>=` boundary.
+  - Excel files with live formulas: relative formula patterns, detection of a typed-over cell and an inconsistent formula, and agreement between Unbake's recovered formula and the file's own.
+  - The Excel report: formulas, number formats, corrected inputs, comments, cell links and highlight colours, read back from the generated file.
+- No false formulas on 30 random datasets that include two-valued flag and fee columns (checked by hand).
+- The Excel report was opened in macOS Quick Look, which rendered the fills, bold headers and currency formats correctly. Its XML passes `xmllint`.
+- Checked by hand in the browser: all four samples, an `.xlsx` whose header is on row 2 with a blank row and a `SUM` total (row numbers shown match the file), the Excel report download, live editing (changing a Qty recalculated its 4 dependents), the layout at desktop and phone width, an `.xlsx` workbook with sheet switching, the German CSV with live editing in German number formatting, the Web Worker with progress bar, and the main-thread fallback.
+- Performance: the samples analyse in under 100 ms. A 3,000-row × 15-column sheet takes about 3.7 s in a Web Worker, and the page stays responsive throughout.
 
 ## Limitations (honest)
 
-- Only finds formulas built from **up to 3 terms** (4 if they're all plain columns) out of: columns, pairwise products and ratios, the previous row, one lookup, or one rate table. It won't find `IF`/piecewise logic (such as overtime only above 40 h), dates, string formulas, cross-sheet references, or formulas with more than two nested operations.
+- Only finds formulas built from **up to 3 terms** (4 if they're all plain columns) out of: columns, pairwise products and ratios, the previous row, one lookup, or one rate table. It won't find dates, string formulas, cross-sheet references, or formulas with more than two nested operations.
+- `IF` rules: one threshold on one column with two branches, each a constant or a formula of up to 2 terms. Nested `IF`s, conditions on text (`IF(Plan="Gold", …)`; use the lookup instead) and `AND`/`OR` conditions are not found. Rules are only searched from columns to the left of the target.
+- At exactly the threshold both branches of a continuous rule (like overtime) give the same value, so Unbake may write `Hours ≥ 40` where the original said `Hours > 40`. Both are correct.
 - A formula needs to hold exactly on at least 80% of rows, and there must be at least 6 rows. Data with measurement noise isn't "baked" and correctly yields nothing.
 - If A and B are tied by an exact relation, Unbake may report it the other way round (e.g. `e = ratio × (1 + f)` instead of `ratio = e ÷ (1 + f)`) when the true direction needs a term outside its library.
 - Integer columns with a small range don't get `ROUND` hypotheses, because rounding to ±0.5 there would make coincidences too easy.
 - Very wide sheets (more than 20 numeric columns) get slow because the product and ratio library grows quadratically. The page stays responsive, but you wait.
 - The living-CSV export always uses a comma delimiter and dot decimals. Excel set to a European locale may mis-read it; Google Sheets and LibreOffice handle it.
-- Excel files are read as displayed values; any formulas still inside are ignored (the app tells you how many there were).
+- Excel files are analysed from their displayed values. Formulas still inside are used only to check Unbake's answers and to find typed-over cells.
+- The Excel report rebuilds the sheet with the header on row 1 and no blank rows, so its cell addresses can differ from your original file. The "Suspect cells" sheet lists both.
+- Cell colours in the report are added by Unbake after SheetJS writes the file (the free SheetJS edition writes no styles). Tested with SheetJS and macOS Quick Look; not yet opened in desktop Excel.
 - The blame solver repairs one cell at a time. Two typos in the same row that interact can end up listed as "no single-cell fix".
 
 ## Privacy
@@ -98,9 +110,11 @@ MIT, see [LICENSE](LICENSE). SheetJS in `vendor/` is Apache 2.0, see [vendor/xls
 index.html         UI (open directly, or serve)
 src/engine.js      the whole discovery + blame engine (browser + Node)
 src/app.js         rendering, live recalculation, exports, icons
+src/workbook.js    Excel input (positions, formula audit) and the Excel report
 src/worker.js      runs the engine off the main thread
 vendor/            SheetJS 0.20.3 for Excel/ODS input
 src/samples.js     generated demo data with planted typos and ground truth
 cli.js             command-line front end
+og.png, favicon.svg  link preview image and tab icon
 test/              node:test suite
 ```

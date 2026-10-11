@@ -161,7 +161,50 @@
     };
   }
 
-  const api = { all: () => [invoices(), ledger(), payroll()] };
+  // ------------------------------------------------------------------ sales payout (IF rules)
+  // No overtime column and no commission tier column: the only way to explain Base Pay
+  // and Commission is a threshold rule.
+  function salesPayout() {
+    const R = rng(314);
+    const header = ['Rep', 'Region', 'Hours', 'Rate', 'Base Pay', 'Sales', 'Commission', 'Total Pay'];
+    const lines = [csvRow(header)];
+    const names = ['Alma Reyes', 'Bo Lindqvist', 'Cyrus Vance', 'Dalia Noor', 'Emeka Obi', 'Freya Holm', 'Goran Petrov', 'Hiro Sato',
+      'Isla Byrne', 'Jonas Weber', 'Kira Patel', 'Liam Chen', 'Maya Torres', 'Nils Berg', 'Olu Adeyemi', 'Priya Rao',
+      'Quentin Moss', 'Rosa Diaz', 'Sami Haddad', 'Tara Quinn', 'Udo Klein', 'Vera Novak', 'Wes Carter', 'Yuki Tanaka'];
+    const truth = [];
+    names.forEach((name, i) => {
+      const hours = pick(R, [32, 36, 38, 40, 40, 40, 42, 44, 45, 46, 48]);
+      const rate = pick(R, [22.5, 25, 28.75, 31]);
+      const sales = r2(6000 + R() * 32000);
+      const base = r2(hours > 40 ? 40 * rate + 1.5 * (hours - 40) * rate : hours * rate);
+      const comm = r2(sales > 20000 ? 800 + 0.07 * (sales - 20000) : 0.04 * sales);
+      const total = r2(base + comm);
+      const s = { base, sales, comm };
+      const rowNum = i + 2;
+      if (i === 5) {
+        const d = comm.toFixed(2).split(''); const j = d.findIndex((ch, k) => /\d/.test(ch) && /\d/.test(d[k + 1]) && ch !== d[k + 1]);
+        [d[j], d[j + 1]] = [d[j + 1], d[j]]; s.comm = parseFloat(d.join(''));
+        truth.push({ col: 'Commission', row: rowNum, suggested: comm, kind: 'swap' });
+      }
+      if (i === 13) { s.base = r2(base * 10); truth.push({ col: 'Base Pay', row: rowNum, suggested: base, kind: 'decimal' }); }
+      lines.push(csvRow([name, pick(R, ['North', 'South', 'West']), String(hours), money(rate), money(s.base), money(s.sales), money(s.comm), money(total)]));
+    });
+    return {
+      id: 'payout', title: 'Sales team payout', icon: 'briefcase',
+      blurb: 'Overtime above 40 hours and a higher commission rate above $20,000 in sales, with no column saying so.',
+      csv: lines.join('\n') + '\n',
+      truth: {
+        formulas: {
+          'Base Pay': 'round(if(Hours > 40, 1.5 × Hours × Rate − 20 × Rate, Hours × Rate), 2)',
+          Commission: 'round(if(Sales > 20000, 0.07 × Sales − 600, 0.04 × Sales), 2)',
+          'Total Pay': 'Base Pay + Commission',
+        },
+        corrections: truth,
+      },
+    };
+  }
+
+  const api = { all: () => [invoices(), ledger(), payroll(), salesPayout()] };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else global.UnbakeSamples = api;
 })(typeof window !== 'undefined' ? window : globalThis);

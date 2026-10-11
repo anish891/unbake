@@ -274,6 +274,8 @@
   }
 
   function featureLibrary(ctx, t, allowed) {
+    const cacheKey = t + '|' + allowed.join(',');
+    if (ctx.featCache && ctx.featCache.has(cacheKey)) return ctx.featCache.get(cacheKey);
     const feats = [{ type: 'one' }];
     for (const a of allowed) feats.push({ type: 'col', a });
     feats.push({ type: 'lag', a: t });
@@ -292,6 +294,7 @@
     }
     // plain features first so cheap combos are tried first
     out.sort((x, y) => (y.plain - x.plain) || (x.cost - y.cost));
+    if (ctx.featCache) ctx.featCache.set(cacheKey, out);
     return out;
   }
 
@@ -305,13 +308,17 @@
 
   // ---------------------------------------------------------------- linear search
 
-  function searchLinear(ctx, t, allowed, kList) {
+  // sub.rows: search only these rows (one branch of an IF); sub.minFrac: inlier share
+  // to accept; sub.noLag: skip previous-row terms.
+  function searchLinear(ctx, t, allowed, kList, sub) {
+    sub = sub || {};
     const col = ctx.cols[t], y = col.values, d = col.decimals, n = ctx.n;
-    const rng = mulberry32(1234 + t * 7919);
-    const yValid = [];
+    const rng = mulberry32(1234 + t * 7919 + (sub.rows ? sub.rows.length * 31 : 0));
+    let yValid = [];
     for (let p = 0; p < n; p++) if (isFinite(y[p])) yValid.push(p);
-    if (yValid.length < 6) return [];
-    const sd = stdev(yValid.map((p) => y[p]));
+    const sd = stdev(yValid.map((p) => y[p])); // spread of the whole column, even for a branch
+    if (sub.rows) { const m = new Set(sub.rows); yValid = yValid.filter((p) => m.has(p)); }
+    if (yValid.length < (sub.rows ? 4 : 6)) return [];
     if (!(sd > 0)) return [];
     // Rounding tolerance only means something if it is tiny relative to the spread.
     const allowRound = 0.5 * Math.pow(10, -d) <= 0.02 * sd;
@@ -324,7 +331,7 @@
     S.sort((a, b) => a - b);
 
     const feats = featureLibrary(ctx, t, allowed);
-    const minFrac = ctx.opts.minFrac;
+    const minFrac = sub.minFrac || ctx.opts.minFrac;
     // per-row screening tolerance, and whether each feature is finite on the whole sample
     const looseS = new Float64Array(n);
     for (const p of S) looseS[p] = looseTol(y[p]);
@@ -343,7 +350,7 @@
     function refine(combo, coefs0) {
       const vecs = combo.map((i) => feats[i].vec);
       const valid = yValid.filter((p) => vecs.every((v) => isFinite(v[p])));
-      if (valid.length < Math.max(combo.length + 3, 0.5 * yValid.length)) return null;
+      if (valid.length < Math.max(combo.length + (sub.rows ? 2 : 3), 0.5 * yValid.length)) return null;
       const residOK = (c, p, tol) => {
         let pred = 0; for (let i = 0; i < vecs.length; i++) pred += c[i] * vecs[i][p];
         return Math.abs(pred - y[p]) <= tol(y[p]);
@@ -368,7 +375,7 @@
         if (s.cnt >= raw.cnt) { chosen = { coefs: snapped, ...s }; break; }
       }
       if (chosen.coefs.some((x) => x === 0)) return null; // a zero term means a smaller combo exists
-      const need = Math.max(combo.length + 3, Math.ceil(minFrac * valid.length));
+      const need = Math.max(combo.length + (sub.rows ? 2 : 3), Math.ceil(minFrac * valid.length));
       if (chosen.cnt < need) return null;
       const complexity = combo.reduce((s, i) => s + feats[i].cost, 0) +
         chosen.coefs.reduce((s, x) => s + coefComplexity(x), 0);
@@ -385,15 +392,18 @@
       const tryCombo = () => {
         const cf = combo.map((i) => feats[i]);
         if (k === 1 && cf[0].type === 'one') return;
+        if (sub.noLag && cf.some((f) => f.type === 'lag')) return;
         if (cf.every((f) => f.type === 'one' || f.type === 'lag') && !cf.some((f) => f.type === 'lag')) return;
         if (k === 3 && cf.filter((f) => !f.plain).length > 1) return;
         if (k >= 4 && cf.some((f) => !f.plain)) return;
         const vecs = cf.map((f) => f.vec);
         const Sc = cf.every((f) => f.finiteOnS) ? S : S.filter((p) => vecs.every((v) => isFinite(v[p])));
-        if (Sc.length < k + 3) return;
-        const need = Math.ceil(0.6 * Sc.length), maxMiss = Sc.length - need;
-        // enough RANSAC draws to hit a typo-free subset with ~97% probability at 20% bad rows
-        const trials = k === 1 ? 4 : k === 2 ? 6 : 8;
+        if (Sc.length < k + (sub.rows ? 2 : 3)) return;
+        // screening bar scales with the acceptance bar (a low bar is used to find one
+        // regime of an IF); draws are sized to hit a clean subset with ~97% probability
+        const low = minFrac < 0.6;
+        const need = Math.ceil(Math.min(0.6, minFrac * 0.75) * Sc.length), maxMiss = Sc.length - need;
+        const trials = low ? (k === 1 ? 8 : 16) : k === 1 ? 4 : k === 2 ? 6 : 8;
         for (let trial = 0; trial < trials; trial++) {
           const pick = [];
           let guard = 0;
@@ -517,9 +527,114 @@
     return best;
   }
 
+  // ---------------------------------------------------------------- piecewise (IF) formulas
+
+  // A threshold that reads like a human wrote it: the coarsest round number that
+  // separates the two groups. "X > c" puts rows with X = c in the lower group,
+  // "X >= c" in the upper one; whichever allows the rounder c wins.
+  function niceThreshold(lo, hi) {
+    const steps = [1e6, 5e5, 1e5, 5e4, 1e4, 5000, 1000, 500, 100, 50, 25, 10, 5, 1, 0.5, 0.25, 0.1, 0.05, 0.01, 0.005, 0.001];
+    const clean = (x) => parseFloat(x.toPrecision(12));
+    for (let rank = 0; rank < steps.length; rank++) {
+      const step = steps[rank];
+      const a = clean(Math.ceil(lo / step - 1e-9) * step);
+      if (a >= lo && a < hi) return { c: a, op: '>', rank };
+      const b = clean(Math.floor(hi / step + 1e-9) * step);
+      if (b > lo && b <= hi) return { c: b, op: '>=', rank };
+    }
+    return { c: lo, op: '>', rank: steps.length };
+  }
+
+  function condHolds(op, x, c) { return op === '>' ? x > c : x >= c; }
+
+  // target = IF(X op c, A, B), where A and B are each a constant or a 1–2 term formula.
+  // Strategy: find a formula that fits a sizable share of rows (one regime), split the
+  // rows it misses from the rows it fits by a threshold on some column, then fit the
+  // other regime on its side only.
+  function searchPiecewise(ctx, t, allowed) {
+    const col = ctx.cols[t], y = col.values, d = col.decimals, n = ctx.n;
+    const valid = []; for (let p = 0; p < n; p++) if (isFinite(y[p])) valid.push(p);
+    // a two-valued column (a flag or a flat fee) is easy to split by coincidence: demand more rows
+    const twoValued = new Set(valid.map((p) => fmt(y[p], d))).size <= 2;
+    if (valid.length < (twoValued ? 20 : 10) || !allowed.length) return null;
+    const sd = stdev(valid.map((p) => y[p]));
+    if (!(sd > 0)) return null;
+    const roundOK = 0.5 * Math.pow(10, -d) <= 0.02 * sd;
+    const get = (c, p) => ctx.cols[c].input[p];
+    const ok = (f, p) => {
+      const pred = f.kind === 'const' ? f.value : predict(f, p, get);
+      return isFinite(pred) && Math.abs(pred - y[p]) <= tolFor(f.mode === 'round' && roundOK ? 'round' : 'exact', d, y[p]);
+    };
+    const constFit = (rows) => {
+      const counts = new Map();
+      for (const p of rows) { const k = fmt(y[p], d); counts.set(k, (counts.get(k) || 0) + 1); }
+      let best = null;
+      for (const [k, cnt] of counts) if (!best || cnt > best.inliers) best = { kind: 'const', value: parseFloat(k), mode: 'exact', inliers: cnt, complexity: 0.5 + coefComplexity(parseFloat(k)) };
+      return best;
+    };
+    const slack = Math.max(1, Math.floor(0.05 * valid.length));
+
+    let firsts = searchLinear(ctx, t, allowed, [1, 2], { minFrac: 0.3, noLag: true });
+    const cf = constFit(valid);
+    if (cf && cf.inliers >= Math.max(3, 0.25 * valid.length)) firsts.push(cf);
+    firsts = firsts.sort((a, b) => b.inliers - a.inliers || a.complexity - b.complexity).slice(0, 6);
+
+    let best = null;
+    for (const f1 of firsts) {
+      const inI = new Map(valid.map((p) => [p, ok(f1, p)]));
+      const nI = [...inI.values()].filter(Boolean).length, nO = valid.length - nI;
+      if (nI < 3 || nO < 3) continue;
+      // best threshold per column: fewest rows on the wrong side
+      const splits = [];
+      for (const x of allowed) {
+        const X = ctx.cols[x].input;
+        const rows = valid.filter((p) => isFinite(X[p])).sort((a, b) => X[a] - X[b]);
+        if (rows.length < valid.length - slack) continue;
+        let iBelow = 0, oBelow = 0;
+        const totI = rows.filter((p) => inI.get(p)).length, totO = rows.length - totI;
+        for (let i = 0; i < rows.length - 1; i++) {
+          if (inI.get(rows[i])) iBelow++; else oBelow++;
+          const lo = X[rows[i]], hi = X[rows[i + 1]];
+          if (lo === hi) continue;
+          const errUp = oBelow + (totI - iBelow);   // f1 below the threshold, other regime above
+          const errDown = iBelow + (totO - oBelow); // other regime below, f1 above
+          if (errUp <= slack) splits.push({ x, lo, hi, err: errUp, otherAbove: true });
+          if (errDown <= slack) splits.push({ x, lo, hi, err: errDown, otherAbove: false });
+        }
+      }
+      splits.sort((a, b) => a.err - b.err);
+      for (const sp of splits.slice(0, 3)) {
+        const { c, op, rank } = niceThreshold(sp.lo, sp.hi);
+        const X = ctx.cols[sp.x].input;
+        const side = valid.filter((p) => condHolds(op, X[p], c) === sp.otherAbove);
+        if (side.length < (twoValued ? 4 : 3) || valid.length - side.length < (twoValued ? 4 : 3)) continue;
+        let seconds = searchLinear(ctx, t, allowed, [1, 2], { rows: side, minFrac: 0.8, noLag: true });
+        const c2 = constFit(side);
+        if (c2 && c2.inliers >= Math.ceil(0.8 * side.length)) seconds.push(c2);
+        for (const f2 of seconds) {
+          const then = sp.otherAbove ? f2 : f1, els = sp.otherAbove ? f1 : f2;
+          const cand = {
+            kind: 'if', x: sp.x, c, op, then, else: els,
+            mode: then.mode === 'round' || els.mode === 'round' ? 'round' : 'exact',
+          };
+          let inliers = 0;
+          for (const p of valid) if (ok(condHolds(op, X[p], c) ? then : els, p)) inliers++;
+          if (inliers < Math.ceil(ctx.opts.minFrac * valid.length)) continue;
+          cand.inliers = inliers; cand.evaluable = valid.length;
+          // a rounder threshold is more plausible (20000 beats 24500 when both fit)
+          cand.complexity = 2 + (f1.complexity || 0) + (f2.complexity || 0) + 0.15 * rank;
+          if (!best || inliers > best.inliers || (inliers === best.inliers && cand.complexity < best.complexity)) best = cand;
+        }
+      }
+    }
+    return best;
+  }
+
   // ---------------------------------------------------------------- formula API
 
   function formulaInputs(f) {
+    if (f.kind === 'const') return [];
+    if (f.kind === 'if') return [...new Set([f.x, ...formulaInputs(f.then), ...formulaInputs(f.else)])];
     if (f.kind === 'linear') {
       const s = new Set();
       for (const { feat } of f.terms) {
@@ -536,6 +651,8 @@
 
   // get(col, pos) must return the numeric value of a cell (blank → 0), keyOf(col,pos) the text.
   function predict(f, p, get, keyOf) {
+    if (f.kind === 'const') return f.value;
+    if (f.kind === 'if') return predict(condHolds(f.op, get(f.x, p), f.c) ? f.then : f.else, p, get, keyOf);
     if (f.kind === 'lookup') { const v = f.map.get(keyOf(f.key, p)); return v === undefined ? NaN : v; }
     if (f.kind === 'rate') { const r = f.map.get(keyOf(f.key, p)); return r === undefined ? NaN : get(f.x, p) * r; }
     let s = 0;
@@ -555,6 +672,14 @@
 
   function finalValue(f, pred, d) { return f.mode === 'round' || f.kind !== 'linear' ? roundTo(pred, d) : pred; }
 
+  // Write constants last and lead with a positive term: "0.07 × Sales − 600", not "−600 + 0.07 × Sales".
+  function displayOrder(terms) {
+    const out = terms.filter((t) => t.feat.type !== 'one').concat(terms.filter((t) => t.feat.type === 'one'));
+    const firstPos = out.findIndex((t) => t.coef > 0);
+    if (firstPos > 0) out.unshift(out.splice(firstPos, 1)[0]);
+    return out;
+  }
+
   function prettyTokens(f, cols) {
     const name = (c) => ({ t: 'col', c, s: cols[c].name });
     const toks = [];
@@ -563,7 +688,13 @@
       const inner = [name(f.x), { t: 'op', s: ' × ' }, { t: 'fn', s: 'rate' }, { t: 'op', s: '(' }, name(f.key), { t: 'op', s: ')' }];
       return f.mode === 'round' ? [{ t: 'fn', s: 'round' }, { t: 'op', s: '(' }, ...inner, { t: 'op', s: ', ' + cols[f.target].decimals + ')' }] : inner;
     }
-    f.terms.forEach(({ coef, feat }, i) => {
+    if (f.kind === 'if') {
+      const branch = (b) => (b.kind === 'const' ? [{ t: 'num', s: numStr(b.value) }] : prettyTokens(Object.assign({}, b, { mode: 'exact' }), cols));
+      const inner = [{ t: 'fn', s: 'if' }, { t: 'op', s: '(' }, name(f.x), { t: 'op', s: f.op === '>' ? ' > ' : ' ≥ ' }, { t: 'num', s: numStr(f.c) },
+        { t: 'op', s: ', ' }, ...branch(f.then), { t: 'op', s: ', ' }, ...branch(f.else), { t: 'op', s: ')' }];
+      return f.mode === 'round' ? [{ t: 'fn', s: 'round' }, { t: 'op', s: '(' }, ...inner, { t: 'op', s: ', ' + cols[f.target].decimals + ')' }] : inner;
+    }
+    displayOrder(f.terms).forEach(({ coef, feat }, i) => {
       const neg = coef < 0, mag = Math.abs(coef);
       if (i > 0) toks.push({ t: 'op', s: neg ? ' − ' : ' + ' });
       else if (neg) toks.push({ t: 'op', s: '−' });
@@ -585,8 +716,13 @@
       [...f.map.entries()].map(([k, v]) => '"' + k.replace(/"/g, '""') + '",' + numStr(v)).join(',') + ')';
     if (f.kind === 'lookup') return '=' + sw();
     if (f.kind === 'rate') return '=' + (f.mode === 'round' ? 'ROUND(' + ref(f.x, p) + '*' + sw() + ',' + d + ')' : ref(f.x, p) + '*' + sw());
+    if (f.kind === 'if') {
+      const branch = (b) => (b.kind === 'const' ? numStr(b.value) : excelFormula(Object.assign({}, b, { mode: 'exact', target: f.target }), p, ctx).slice(1));
+      const body = 'IF(' + ref(f.x, p) + f.op + numStr(f.c) + ',' + branch(f.then) + ',' + branch(f.else) + ')';
+      return '=' + (f.mode === 'round' ? 'ROUND(' + body + ',' + d + ')' : body);
+    }
     let s = '';
-    f.terms.forEach(({ coef, feat }, i) => {
+    displayOrder(f.terms).forEach(({ coef, feat }, i) => {
       const neg = coef < 0, mag = Math.abs(coef);
       s += i === 0 ? (neg ? '-' : '') : (neg ? '-' : '+');
       let c = numStr(mag); if (c.includes('/')) c = '(' + c + ')';
@@ -682,7 +818,7 @@
     });
 
     const rowNum = dataIdx.map((ri) => ri + 2); // spreadsheet row of each data position
-    const ctx = { cols, n, opts, rowNum };
+    const ctx = { cols, n, opts, rowNum, featCache: new Map() };
     const numeric = cols.filter((c) => c.type === 'number').map((c) => c.index);
     const texts = cols.filter((c) => c.type === 'text').map((c) => c.index);
 
@@ -696,28 +832,31 @@
     };
     // Occam within noise: among candidates that explain (nearly) as many rows as the
     // best one, keep the simplest. A typo can cost the true formula a row or two.
-    const fit = (t, allowed, cats) => {
-      let cands = searchLinear(ctx, t, allowed, [1, 2, 3]);
+    const fit = (t, allowed, cats, piecewise) => {
+      // two-valued columns are only explained by a lookup or a threshold rule
+      let cands = cols[t].distinct >= 3 ? searchLinear(ctx, t, allowed, [1, 2, 3]) : [];
       cands.push(searchLookup(ctx, t, cats), searchRateLookup(ctx, t, allowed, cats));
       cands = cands.filter(Boolean);
-      if (!cands.length) cands = searchLinear(ctx, t, allowed, [4]);
+      if (!cands.length && cols[t].distinct >= 3) cands = searchLinear(ctx, t, allowed, [4]);
+      if (!cands.length && piecewise && allowed.length <= 25) { const pw = searchPiecewise(ctx, t, allowed); if (pw) cands = [pw]; }
       if (!cands.length) return null;
       const top = Math.max(...cands.map((c) => c.inliers));
       const slack = Math.max(1, Math.ceil(0.03 * n));
       return cands.filter((c) => c.inliers >= top - slack).sort((a, b) => a.complexity - b.complexity || b.inliers - a.inliers)[0];
     };
 
-    const candidates = numeric.filter((t) => cols[t].distinct >= 3);
+    const candidates = numeric.filter((t) => cols[t].distinct >= 2);
     const progress = typeof opts.onProgress === 'function' ? opts.onProgress : () => {};
     let step = 0;
     const tick = (t) => progress(Math.min(0.97, ++step / (candidates.length * 1.6 + 1)), cols[t].name);
     // Phase 1: spreadsheets compute rightwards — explain each column from columns to its left.
     for (const t of candidates) {
       tick(t);
-      const f = fit(t, numeric.filter((c) => c < t), texts.filter((c) => c < t));
+      const f = fit(t, numeric.filter((c) => c < t), texts.filter((c) => c < t), true);
       if (f) byTarget.set(t, Object.assign(f, { target: t }));
     }
     // Phase 2: anything still unexplained may use any column that doesn't depend on it.
+    // (IF rules are only searched left-to-right in phase 1; doing it here doubles the cost.)
     for (const t of candidates) {
       if (byTarget.has(t)) continue;
       tick(t);

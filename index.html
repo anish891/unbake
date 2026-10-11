@@ -4,11 +4,22 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Unbake</title>
+<meta name="description" content="Recover the formulas behind a spreadsheet exported as plain values, and find the cells someone typed wrong. Runs entirely in your browser; nothing is uploaded.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://unbake.vercel.app/">
+<meta property="og:title" content="Unbake: recover the formulas behind any exported spreadsheet">
+<meta property="og:description" content="Drop in a CSV or Excel file of plain values. Unbake works out the formulas that produced it and flags the cells someone typed wrong. Nothing leaves your browser.">
+<meta property="og:image" content="https://unbake.vercel.app/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://unbake.vercel.app/og.png">
 <style>
 :root {
   --bg: #f6f4ef; --paper: #fffdf8; --ink: #1d1c1a; --muted: #6f6a61; --line: #e4dfd4; --line2: #d4cdbf;
   --accent: #2f5bd3; --accent-soft: #e6ecfb; --derived: #f1f5ff; --derived-ink: #2846a0;
-  --bad: #c2362b; --bad-soft: #fde8e5; --warn: #b26a00; --warn-soft: #fff1d6; --good: #2e7d4f; --good-soft: #e3f3e8;
+  --bad: #c2362b; --bad-soft: #fde8e5; --hard: #7c3aed; --hard-soft: #f1eafe; --warn: #b26a00; --warn-soft: #fff1d6; --good: #2e7d4f; --good-soft: #e3f3e8;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --sans: ui-sans-serif, -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
   --shadow: 0 1px 2px rgba(30,25,15,.05), 0 6px 24px rgba(30,25,15,.06);
@@ -17,7 +28,7 @@
   :root {
     --bg: #15161a; --paper: #1d1f24; --ink: #ecebe7; --muted: #9a978f; --line: #2c2f36; --line2: #3a3e47;
     --accent: #7d9cff; --accent-soft: #232c45; --derived: #1f2638; --derived-ink: #a9bcff;
-    --bad: #ff7b6e; --bad-soft: #3a1f1d; --warn: #f0b04a; --warn-soft: #3a2e17; --good: #6fcf97; --good-soft: #1b3326;
+    --bad: #ff7b6e; --bad-soft: #3a1f1d; --hard: #b79cff; --hard-soft: #2a2140; --warn: #f0b04a; --warn-soft: #3a2e17; --good: #6fcf97; --good-soft: #1b3326;
     --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 24px rgba(0,0,0,.25);
   }
 }
@@ -82,7 +93,7 @@ button { font: inherit; cursor: pointer; }
 .ok-ic { color: var(--good); } .bad-ic { color: var(--bad); }
 .fx .num { color: var(--warn); font-weight: 600; }
 .fx .fn { color: var(--muted); }
-.fx .op { color: var(--muted); white-space: pre; }
+.fx .op { color: var(--muted); white-space: pre-wrap; }
 .fmeta { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 6px; font-size: 12.5px; color: var(--muted); }
 .xl { font: 12px var(--mono); background: var(--bg); border: 1px solid var(--line); padding: 2px 7px; border-radius: 6px; color: var(--ink); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pill { font-size: 11.5px; padding: 1px 8px; border-radius: 99px; background: var(--good-soft); color: var(--good); font-weight: 600; }
@@ -136,6 +147,11 @@ td.wrong { background: var(--bad-soft); color: var(--bad); font-weight: 700; out
 td.wrong .sug { display: block; font-size: 11px; color: var(--good); font-weight: 600; }
 td.ripple { background: var(--warn-soft); color: var(--warn); }
 td.fdbad { background: var(--warn-soft); color: var(--warn); font-weight: 600; }
+td.hard { background: var(--hard-soft); outline: 2px dashed var(--hard); outline-offset: -3px; }
+.pill.neutral { background: var(--bg); color: var(--muted); font-weight: 500; }
+.pill .ic { width: .9em; height: .9em; margin-right: 2px; }
+#filecheck code { font: 12px var(--mono); color: var(--ink); }
+.fix .what code { font: 12.5px var(--mono); color: var(--good); }
 td.edit { cursor: text; }
 td.edit:hover { outline: 1px dashed var(--accent); outline-offset: -2px; }
 td.edit:focus { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--paper); color: var(--ink); }
@@ -205,6 +221,7 @@ button:disabled { opacity: .55; cursor: progress; }
         <h2>Recovered formulas</h2>
         <div id="formulas"></div>
         <div class="extra" id="extra"></div>
+        <div id="filecheck"></div>
       </div>
       <div style="display:grid; gap:18px; align-content:start">
         <div class="card panel">
@@ -223,9 +240,10 @@ button:disabled { opacity: .55; cursor: progress; }
     <div class="card tbl" id="tbl"></div>
     <div class="legend" id="legend"></div>
     <div class="exports">
-      <button class="btn primary" id="dlLiving"><i data-ic="download"></i>Download living spreadsheet</button>
-      <button class="btn" id="dlFixed"><i data-ic="download"></i>Download corrected values</button>
-      <div class="meta">The living spreadsheet is a CSV whose derived cells are real formulas (<code>=ROUND(H2*I2,2)</code>, <code>SWITCH</code> lookups, <code>SUM</code> totals). Open it in Excel, Google Sheets or LibreOffice and it calculates again.</div>
+      <button class="btn primary" id="dlXlsx"><i data-ic="download"></i>Download Excel report</button>
+      <button class="btn" id="dlLiving"><i data-ic="download"></i>Living CSV</button>
+      <button class="btn" id="dlFixed"><i data-ic="download"></i>Corrected values CSV</button>
+      <div class="meta">The Excel report has the formulas restored, suspect cells highlighted with a comment explaining each one, and sheets listing every suspect cell and recovered rule. The living CSV is a plain CSV whose derived cells are real formulas (<code>=ROUND(H2*I2,2)</code>, <code>SWITCH</code> lookups, <code>SUM</code> totals). Open it in Excel, Google Sheets or LibreOffice and it calculates again.</div>
     </div>
   </section>
 
@@ -235,8 +253,9 @@ button:disabled { opacity: .55; cursor: progress; }
 </div>
 
 <!-- bump ?v= on every deploy so browsers (and the worker) never run a stale engine -->
-<script src="src/engine.js?v=1.2.0"></script>
-<script src="src/samples.js?v=1.2.0"></script>
-<script src="src/app.js?v=1.2.0"></script>
+<script src="src/engine.js?v=1.3.0"></script>
+<script src="src/workbook.js?v=1.3.0"></script>
+<script src="src/samples.js?v=1.3.0"></script>
+<script src="src/app.js?v=1.3.0"></script>
 </body>
 </html>

@@ -114,7 +114,7 @@ test('living spreadsheet export writes formulas with correct cell references', (
   assert.strictEqual(rows[0][7], 'Subtotal');
   assert.strictEqual(rows[1][7], '=F2*G2');
   assert.strictEqual(rows[5][12], '=K6+L6');
-  assert.strictEqual(rows[2][0], '=1+A2');
+  assert.strictEqual(rows[2][0], '=A2+1');
   // the Qty typo is repaired in the export (input cells carry corrected values)
   assert.strictEqual(rows[15][5], '12');
 });
@@ -160,4 +160,87 @@ test('results survive a structured clone (Web Worker boundary) and re-hydrate', 
   const cloned = U.hydrate(structuredClone(U.dehydrate(r)));
   assert.strictEqual(cloned.formulas.find((f) => f.kind === 'rate').map.get('CA'), 0.0725);
   assert.strictEqual(U.livingCSV(cloned).split('\n')[1].includes('=F2*G2'), true);
+});
+
+test('IF rules: free shipping from $50 (constant branches, ≥ threshold)', () => {
+  const R = U.mulberry32(21), lines = ['Order,Subtotal,Shipping,Total'];
+  for (let i = 0; i < 30; i++) {
+    const sub = U.roundTo(12 + R() * 90, 2), ship = sub >= 50 ? 0 : 5.99;
+    lines.push([1000 + i, sub.toFixed(2), ship.toFixed(2), U.roundTo(sub + ship, 2).toFixed(2)].join(','));
+  }
+  lines.push([1030, '50.00', '0.00', '50.00'].join(',')); // exactly on the threshold
+  const r = U.analyze(lines.join('\n'));
+  assert.strictEqual(pretty(r, formulaFor(r, 'Shipping')), 'if(Subtotal ≥ 50, 0, 5.99)');
+  assert.strictEqual(formulaFor(r, 'Shipping').excelAt(0), '=IF(B2>=50,0,5.99)');
+  assert.strictEqual(r.corrections.length, 0);
+});
+
+test('IF rules: payout sample recovers overtime and commission thresholds exactly', () => {
+  const r = U.analyze(S.all()[3].csv);
+  const base = formulaFor(r, 'Base Pay'), comm = formulaFor(r, 'Commission');
+  assert.strictEqual(base.kind, 'if');
+  assert.strictEqual(base.c, 40);
+  assert.strictEqual(pretty(r, comm), 'round(if(Sales > 20000, 0.07 × Sales − 600, 0.04 × Sales), 2)');
+  // the living export still recalculates: recompute reproduces every non-typo cell
+  const live = U.recompute(r, {});
+  const c = r.cols.find((x) => x.name === 'Commission');
+  const mismatches = c.values.filter((v, p) => Math.abs(v - live.get(c.index)[p]) > 0.006).length;
+  assert.strictEqual(mismatches, 1); // only the planted typo
+});
+
+// ---------------------------------------------------------------- workbook (SheetJS) features
+const XLSX = require('../vendor/xlsx.full.min.js');
+const W = require('../src/workbook.js');
+
+function workbookWithLiveFormulas() {
+  // Qty | Price | Total (=A*B), with row 6 typed over and row 9 using a different formula
+  const rows = [['Qty', 'Price', 'Total']];
+  for (let i = 0; i < 10; i++) rows.push([i + 2, 1.5 * ((i % 3) + 1), null]);
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  for (let r = 2; r <= 11; r++) ws['C' + r] = { t: 'n', v: ws['A' + r].v * ws['B' + r].v, f: 'A' + r + '*B' + r };
+  ws.C6 = { t: 'n', v: 99 };                          // hard-coded over the formula
+  ws.C9 = { t: 'n', v: ws.A9.v * ws.B9.v + 1, f: 'A9*B9+1' }; // inconsistent formula
+  ws['!ref'] = 'A1:C11';
+  return ws;
+}
+
+test('relative formula patterns line up across rows', () => {
+  assert.strictEqual(W.toRelative('=B2*C2', 1, 3), W.toRelative('=b3 * c3', 2, 3));
+  assert.notStrictEqual(W.toRelative('=B2*C2', 1, 3), W.toRelative('=B2*$C$2', 1, 3));
+  assert.strictEqual(W.fromRelative(W.toRelative('=ROUND(B2*$H$1,2)', 1, 3), 6, 3), '=ROUND(B7*$H$1,2)');
+  assert.strictEqual(W.toRelative('=IF(A2="B2",1,0)', 1, 2).includes('"B2"'), true); // strings untouched
+});
+
+test('workbook audit finds typed-over and inconsistent formulas', () => {
+  const ws = workbookWithLiveFormulas();
+  const table = W.sheetTable(XLSX, ws);
+  const audit = W.auditSheet(XLSX, ws, table);
+  assert.strictEqual(audit.columns.length, 1);
+  assert.strictEqual(audit.columns[0].example, '=A2*B2');
+  const kinds = audit.issues.map((i) => i.kind + '@' + i.sheetRow + ' ' + i.expected).sort();
+  assert.deepStrictEqual(kinds, ['hardcoded@6 =A6*B6', 'inconsistent@9 =A9*B9']);
+  // and Unbake's own recovered formula agrees with the file's
+  const r = U.analyze(table.csv);
+  const f = formulaFor(r, 'Total');
+  assert.strictEqual(W.compareFormula(f, 0, r, audit.columns[0]).same, true);
+  assert.deepStrictEqual(r.corrections.map((c) => c.row).sort(), [6, 9]);
+});
+
+test('Excel export: formulas, corrections, comments, links and highlight styles', () => {
+  const r = U.analyze(S.all()[0].csv);
+  const overrides = {};
+  for (const c of r.corrections) if (r.cols[c.col].formula === undefined) (overrides[c.col] = overrides[c.col] || {})[c.pos] = c.suggested;
+  const u8 = W.buildExport(XLSX, r, { engine: U, name: 'invoices', live: U.recompute(r, overrides), overrides });
+  const wb = XLSX.read(u8, { type: 'array', cellStyles: true });
+  assert.deepStrictEqual(wb.SheetNames, ['invoices', 'Suspect cells', 'Formulas']);
+  const d = wb.Sheets.invoices;
+  assert.strictEqual(d.H2.f, 'F2*G2');
+  assert.strictEqual(d.H2.z, '"$"#,##0.00');
+  assert.strictEqual(d.F16.v, 12);                       // mistyped Qty repaired
+  assert.match(d.F16.c[0].t, /Typed as 21/);
+  assert.strictEqual(d.F16.s.fgColor.rgb, 'E3F3E8');     // green: repaired input
+  assert.strictEqual(d.M31.s.fgColor.rgb, 'FDE2DE');     // red: suspect derived cell
+  assert.strictEqual(d.M31.v, 287.04);
+  assert.strictEqual(wb.Sheets['Suspect cells'].C2.l.Target, "#'invoices'!G8");
+  assert.strictEqual(XLSX.utils.sheet_to_json(wb.Sheets.Formulas).length, r.formulas.length);
 });

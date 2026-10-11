@@ -1,7 +1,7 @@
 /* Unbake UI: renders what the engine discovers. No logic here invents results. */
 (function () {
   'use strict';
-  const U = window.Unbake, $ = (id) => document.getElementById(id);
+  const U = window.Unbake, W = window.UnbakeWorkbook, $ = (id) => document.getElementById(id);
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const ROW_LIMIT = 400;
 
@@ -91,14 +91,15 @@
     let formulaCells = 0;
     sheets = wb.SheetNames.map((name) => {
       const ws = wb.Sheets[name];
-      for (const k in ws) if (k[0] !== '!' && ws[k] && ws[k].f) formulaCells++;
-      const ref = ws['!ref'] ? XLSX.utils.decode_range(ws['!ref']) : null;
-      const size = ref ? (ref.e.r - ref.s.r + 1) * (ref.e.c - ref.s.c + 1) : 0;
-      return { name, size, csv: XLSX.utils.sheet_to_csv(ws, { blankrows: false }) };
-    }).filter((x) => x.size > 0);
+      const table = W.sheetTable(XLSX, ws);
+      if (!table) return null;
+      const audit = W.auditSheet(XLSX, ws, table);
+      formulaCells += audit.formulaCells;
+      return { name, size: table.size, csv: table.csv, table, audit };
+    }).filter(Boolean);
     if (!sheets.length) return showErr('That workbook has no sheets with data.');
     workbookNote = formulaCells
-      ? `This workbook still contains ${formulaCells.toLocaleString()} live formula cell${formulaCells > 1 ? 's' : ''}. Unbake ignores them and works only from the displayed values, so you can compare.`
+      ? `This workbook still contains ${formulaCells.toLocaleString()} live formula cell${formulaCells > 1 ? 's' : ''}. Unbake recovers formulas from the displayed values alone, then checks its answers against them.`
       : '';
     sheetIdx = sheets.reduce((best, x, i) => (x.size > sheets[best].size ? i : best), 0);
     fileName = base;
@@ -170,6 +171,13 @@
 
   // ------------------------------------------------------------ rendering helpers
   const colName = (c) => R.cols[c].name;
+  const sheetInfo = () => (sheets && sheets[sheetIdx]) || null;
+  // Row numbers as they appear in the user's own file (workbooks may start lower or skip blank rows).
+  const rowLabel = (p) => { const s = sheetInfo(); return s ? s.table.sheetRows[R.dataIdx[p] + 1] + 1 : R.rowNum[p]; };
+  // audit issues are keyed by body row (totals included); the table by data position
+  const dataPos = (bodyIndex) => R.dataIdx.indexOf(bodyIndex);
+  const bodyRowLabel = (ri) => { const s = sheetInfo(); return s ? s.table.sheetRows[ri + 1] + 1 : ri + 2; };
+  const fileAudit = () => { const s = sheetInfo(); return s && s.audit && s.audit.columns.length ? s.audit : null; };
   function fmtNum(c, v) {
     const col = R.cols[c];
     if (!isFinite(v)) return '';
@@ -212,7 +220,41 @@
       });
     }
     if (sheets && workbookNote) $('headline').insertAdjacentHTML('beforeend', `<div class="meta">${esc(workbookNote)}</div>`);
-    renderFormulas(); renderFixes(); renderGraph(); renderTable();
+    renderFormulas(); renderFileCheck(); renderFixes(); renderGraph(); renderTable();
+  }
+
+  function fileBadge(f) {
+    const a = fileAudit();
+    const colAudit = a && a.columns.find((c) => c.col === f.target);
+    const cmp = colAudit && W.compareFormula(f, f.lag ? 1 : 0, R, colAudit);
+    if (!cmp) return '';
+    return cmp.same
+      ? `<span class="pill" title="The file's own formula in this column is ${esc(cmp.fileFormula)}">${ic('check')} same as the file's formula</span>`
+      : `<span class="pill neutral" title="Both reproduce the values; they are written differently">file writes it as ${esc(cmp.fileFormula)}</span>`;
+  }
+
+  function renderFileCheck() {
+    const a = fileAudit(), box = $('filecheck');
+    if (!a) { box.innerHTML = ''; return; }
+    const cols = a.columns.map((c) => {
+      const f = R.cols[c.col] && R.cols[c.col].formula !== undefined ? R.formulas[R.cols[c.col].formula] : null;
+      const cmp = f && W.compareFormula(f, f.lag ? 1 : 0, R, c);
+      const verdict = !f ? 'Unbake found no formula for this column'
+        : cmp.same ? ic('check', 'ok-ic') + ' Unbake recovered the same formula from the values alone'
+        : 'Unbake recovered an equivalent formula written differently';
+      return `<div>${esc(R.cols[c.col] ? R.cols[c.col].name : 'Column ' + c.col)}: <code>${esc(c.example)}</code> in ${c.count} of ${c.cells} cells. ${verdict}.</div>`;
+    }).join('');
+    const issues = a.issues.map((iss, i) => `<div class="fix hardfix" data-h="${i}">
+        <div class="where">row ${iss.sheetRow}</div>
+        <div class="what"><b>${esc(colName(iss.col))}</b> ${iss.kind === 'hardcoded'
+          ? `holds the typed number <s>${esc(String(iss.value))}</s> instead of <code>${esc(iss.expected)}</code>`
+          : `uses <s>${esc(iss.formula)}</s> instead of <code>${esc(iss.expected)}</code>`}</div>
+        <div class="why">${iss.kind === 'hardcoded'
+          ? 'Someone typed over the formula, so this cell no longer updates when its inputs change.'
+          : 'This cell breaks the pattern of every other formula in the column.'}</div></div>`).join('');
+    box.innerHTML = '<h2 style="margin-top:16px">Formulas inside the file</h2><div class="extra">' + cols + '</div>' +
+      (issues ? '<div style="margin-top:10px">' + issues + '</div>' : '<div class="empty">Every formula cell follows its column\u2019s pattern, and no formula was typed over.</div>');
+    box.querySelectorAll('.hardfix').forEach((el) => el.onclick = () => { const iss = a.issues[+el.dataset.h]; if (dataPos(iss.bodyIndex) >= 0) focusCell(dataPos(iss.bodyIndex), iss.col); });
   }
 
   function renderFormulas() {
@@ -222,7 +264,7 @@
     } else box.innerHTML = R.formulas.map((f) => {
       const bad = f.anomalies.length;
       let map = '';
-      if (f.kind !== 'linear') {
+      if (f.kind === 'lookup' || f.kind === 'rate') {
         const entries = [...f.map.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0])));
         map = '<div class="maptbl">' + entries.slice(0, 24).map(([k, v]) => `<span>${esc(k)} ${ic('arrowRight')} <b>${f.kind === 'rate' ? +(v * 100).toPrecision(6) + '%' : esc(U.numStr(v))}</b></span>`).join('') + (entries.length > 24 ? `<span>+${entries.length - 24} more</span>` : '') + '</div>';
       }
@@ -232,7 +274,7 @@
         ${map}
         <div class="fmeta"><span class="xl" title="as a spreadsheet formula">${esc(R.cols[f.target].letter + R.rowNum[firstRow])} ${esc(f.excelAt(firstRow))}</span>
           <span class="pill${bad ? ' warn' : ''}">${f.inliers}/${f.evaluable} rows exact${bad ? ' · ' + bad + ' break' : ''}</span>
-          ${f.mode === 'round' ? '<span>rounded to ' + R.cols[f.target].decimals + ' dp</span>' : ''}</div>
+          ${f.mode === 'round' ? '<span>rounded to ' + R.cols[f.target].decimals + ' dp</span>' : ''}${fileBadge(f)}</div>
       </div>`;
     }).join('');
     // staggered reveal
@@ -244,10 +286,10 @@
     });
     const ex = [];
     for (const s of R.summaries) ex.push(s.ok
-      ? `<div>${ic('check', 'ok-ic')} Row ${s.row} <b>${esc(colName(s.col))}</b> is <code>${esc(s.excel)}</code></div>`
-      : `<div>${ic('x', 'bad-ic')} Row ${s.row} <b>${esc(colName(s.col))}</b> claims ${fmtNum(s.col, s.typed)} but the rows above sum to ${fmtNum(s.col, s.sum)}</div>`);
+      ? `<div>${ic('check', 'ok-ic')} Row ${bodyRowLabel(s.rowIndex)} <b>${esc(colName(s.col))}</b> is <code>${esc(s.excel)}</code></div>`
+      : `<div>${ic('x', 'bad-ic')} Row ${bodyRowLabel(s.rowIndex)} <b>${esc(colName(s.col))}</b> claims ${fmtNum(s.col, s.typed)} but the rows above sum to ${fmtNum(s.col, s.sum)}</div>`);
     for (const fd of R.fds.slice(0, 6)) ex.push(`<div>Every <b>${esc(colName(fd.from))}</b> has exactly one <b>${esc(colName(fd.to))}</b>` +
-      (fd.violations.length ? `, <span style="color:var(--warn)">except ${fd.violations.slice(0, 3).map((v) => 'row ' + v.row + ' (“' + esc(v.typed) + '”, expected “' + esc(v.expected) + '”)').join(', ')}</span>` : '') + '</div>');
+      (fd.violations.length ? `, <span style="color:var(--warn)">except ${fd.violations.slice(0, 3).map((v) => 'row ' + rowLabel(v.pos) + ' (“' + esc(v.typed) + '”, expected “' + esc(v.expected) + '”)').join(', ')}</span>` : '') + '</div>');
     $('extra').innerHTML = ex.length ? '<h2 style="margin-top:16px">Also noticed</h2>' + ex.join('') : '';
   }
 
@@ -265,12 +307,12 @@
         ? `Repairs <b>${c.fixCount} broken calculations</b> at once (${esc(fixes.join(', '))})`
         : isInput ? `Explains why <b>${esc(fixes[0])}</b> doesn’t add up on this row` : `Doesn’t match its own formula`;
       return `<div class="fix" data-i="${i}">
-        <div class="where">row ${c.row}</div>
+        <div class="where">row ${rowLabel(c.pos)}</div>
         <div class="what"><b>${esc(colName(c.col))}</b> &nbsp;<s>${esc(typed)}</s> ${ic('arrowRight')} <ins>${esc(fmtNum(c.col, c.suggested))}</ins>${c.fixCount > 1 ? '<span class="root">' + ic('alert') + ' root cause</span>' : ''}</div>
         <div class="why"><b>${esc(c.diagnosis.label[0].toUpperCase() + c.diagnosis.label.slice(1))}.</b> ${because}.${c.alternatives && c.alternatives.length ? `<br>Less likely: ${c.alternatives.map((a) => `${esc(colName(a.col))} should be ${esc(fmtNum(a.col, a.suggested))} (${esc(a.diagnosis.label)})`).join('; ')}.` : ''}</div>
       </div>`;
     }).join('') + R.unexplained.map((u) => `<div class="fix" data-u="${u.pos}:${u.col}">
-        <div class="where">row ${u.row}</div>
+        <div class="where">row ${rowLabel(u.pos)}</div>
         <div class="what"><b>${esc(colName(u.col))}</b> is ${esc(fmtNum(u.col, u.typed))}, formula says ${esc(fmtNum(u.col, u.expected))}</div>
         <div class="why">No single cell fix explains this one. It may be a manual override.</div></div>`).join('');
     box.querySelectorAll('.fix').forEach((el) => el.onclick = () => {
@@ -324,7 +366,7 @@
     for (const c of nodes) {
       const p = pos.get(c), col = R.cols[c], f = fs.find((x) => x.target === c);
       const label = col.name.length > 18 ? col.name.slice(0, 17) + '…' : col.name;
-      const sub = f ? (f.kind === 'lookup' ? 'lookup' : f.kind === 'rate' ? 'rate table' : 'formula') : col.type === 'text' ? 'key' : 'input';
+      const sub = f ? (f.kind === 'lookup' ? 'lookup' : f.kind === 'rate' ? 'rate table' : f.kind === 'if' ? 'if rule' : 'formula') : col.type === 'text' ? 'key' : 'input';
       boxes += `<g class="node ${f ? 'derived' : col.type === 'text' ? 'text' : ''}" data-c="${c}" transform="translate(${p.x},${p.y})">
         <rect width="${W}" height="${H}" rx="9"/><text x="12" y="19" font-weight="600">${esc(label)}</text>
         <text x="12" y="34" style="fill:var(--muted);font-size:11px">${col.letter} · ${sub}</text></g>`;
@@ -348,7 +390,10 @@
       if (!wrong.has(k)) ripple.set(k, f);
     }
     for (const fd of R.fds) for (const v of fd.violations) fdbad.set(v.pos + ':' + fd.to, v);
-    return { wrong, ripple, fdbad };
+    const hard = new Map();
+    const a = fileAudit();
+    if (a) for (const iss of a.issues) if (dataPos(iss.bodyIndex) >= 0) hard.set(dataPos(iss.bodyIndex) + ':' + iss.col, iss);
+    return { wrong, ripple, fdbad, hard };
   }
 
   function renderTable() {
@@ -358,7 +403,7 @@
     let h = '<table><thead><tr><th></th>' + cols.map((c) => `<th data-c="${c.index}"><span class="l">${c.letter}</span>${esc(c.name)}${c.formula !== undefined ? '<span class="f" title="recovered formula">' + ic('sigma') + '</span>' : ''}</th>`).join('') + '</tr></thead><tbody>';
     const limit = showAll ? R.n : Math.min(R.n, ROW_LIMIT);
     for (let p = 0; p < limit; p++) {
-      h += `<tr><td class="rn">${R.rowNum[p]}</td>`;
+      h += `<tr><td class="rn">${rowLabel(p)}</td>`;
       for (const c of cols) {
         const k = p + ':' + c.index;
         if (c.type === 'text') {
@@ -374,6 +419,8 @@
           if (w) { cls.push('wrong'); content += `<span class="sug">${ic('arrowRight')} ${esc(fmtNum(c.index, w.suggested))}</span>`; title = w.diagnosis.label; }
           else if (r) { cls.push('ripple'); title = `Doesn’t match the ${c.name} formula because of a typo elsewhere in this row`; }
           else if (isDerived(c.index)) cls.push('derived');
+          const hd = info.hard.get(k);
+          if (hd) { cls.push('hard'); title = (title ? title + '. ' : '') + (hd.kind === 'hardcoded' ? 'Typed number where the file expects ' + hd.expected : 'Formula ' + hd.formula + ' differs from the column\u2019s ' + hd.expected); }
         } else {
           const v = live.get(c.index)[p];
           const f = isDerived(c.index) ? R.formulas[c.formula] : null;
@@ -409,7 +456,7 @@
       ? 'Exactly as exported. Hover a red cell for the diagnosis; click a typo on the right to jump to it.'
       : 'The formulas are live again and the typos are repaired. <b>Edit any white input cell</b> and every cell that depends on it recalculates.';
     $('legend').innerHTML = mode === 'audit'
-      ? '<span><i style="background:var(--derived)"></i>computed by a recovered formula</span><span><i style="background:var(--bad-soft);outline:2px solid var(--bad)"></i>suspect: breaks a formula (likely fix below)</span><span><i style="background:var(--warn-soft)"></i>inconsistent only because of a typo elsewhere</span>'
+      ? (fileAudit() && fileAudit().issues.length ? '<span><i style="background:var(--hard-soft);outline:2px dashed var(--hard)"></i>formula typed over in the file</span>' : '') + '<span><i style="background:var(--derived)"></i>computed by a recovered formula</span><span><i style="background:var(--bad-soft);outline:2px solid var(--bad)"></i>suspect: breaks a formula (likely fix below)</span><span><i style="background:var(--warn-soft)"></i>inconsistent only because of a typo elsewhere</span>'
       : '<span><i style="background:var(--derived)"></i>live formula (hover for the spreadsheet syntax)</span><span><i style="background:var(--good-soft)"></i>repaired input</span><span><i style="background:var(--paper);outline:1px dashed var(--accent)"></i>editable input</span>';
 
     if (mode === 'live') wireEditing();
@@ -436,7 +483,7 @@
             if (el) { el.classList.add('flash'); changed++; }
           }
         });
-        $('hint').innerHTML = `Changed ${esc(R.cols[c].name)} on row ${R.rowNum[p]}: <b>${changed - 1} dependent cell${changed - 1 === 1 ? '' : 's'} recalculated</b>.`;
+        $('hint').innerHTML = `Changed ${esc(R.cols[c].name)} on row ${rowLabel(p)}: <b>${changed - 1} dependent cell${changed - 1 === 1 ? '' : 's'} recalculated</b>.`;
       });
     });
   }
@@ -458,13 +505,25 @@
   document.querySelectorAll('#mode button').forEach((b) => b.onclick = () => setMode(b.dataset.m));
 
   // ------------------------------------------------------------ exports
-  function download(name, text) {
+  function download(name, data, type) {
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' }));
+    a.href = URL.createObjectURL(new Blob([data], { type: type || 'text/csv' }));
     a.download = name; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
   $('dlLiving').onclick = () => download(fileName + '.living.csv', U.livingCSV(R));
+  $('dlXlsx').onclick = () => {
+    const btn = $('dlXlsx');
+    btn.disabled = true;
+    loadSheetJS().then(() => {
+      const s = sheetInfo();
+      const u8 = W.buildExport(XLSX, R, {
+        engine: U, name: (s ? s.name : fileName.split(' · ')[0]) || 'Data',
+        live: U.recompute(R, overrides), overrides, rowLabel, audit: s ? s.audit : null,
+      });
+      download(fileName.replace(/ · /g, ' ') + '.unbaked.xlsx', u8, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    }).catch((e) => alert('Could not build the Excel file: ' + (e.message || e))).finally(() => { btn.disabled = false; });
+  };
   $('dlFixed').onclick = () => {
     const vals = U.recompute(R, overrides);
     const rows = [R.header.slice()];

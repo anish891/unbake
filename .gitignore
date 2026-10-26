@@ -5,3 +5,8 @@ node_modules/
 .claude/
 examples/      
 .vercel
+.agents/
+.aider-desk/
+data/
+design-system/
+skills-lock.json

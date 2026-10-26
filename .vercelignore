@@ -1,2 +1,8 @@
 test/
 cli.js
+.claude/
+.agents/
+.aider-desk/
+data/
+design-system/
+skills-lock.json

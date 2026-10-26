@@ -17,46 +17,66 @@
 <meta name="twitter:image" content="https://unbake.vercel.app/og.png">
 <style>
 :root {
-  --bg: #f6f4ef; --paper: #fffdf8; --ink: #1d1c1a; --muted: #6f6a61; --line: #e4dfd4; --line2: #d4cdbf;
-  --accent: #2f5bd3; --accent-soft: #e6ecfb; --derived: #f1f5ff; --derived-ink: #2846a0;
-  --bad: #c2362b; --bad-soft: #fde8e5; --hard: #7c3aed; --hard-soft: #f1eafe; --warn: #b26a00; --warn-soft: #fff1d6; --good: #2e7d4f; --good-soft: #e3f3e8;
-  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --bg: #f3f2ed; --paper: #fffffd; --ink: #15181e; --muted: #596070; --line: #e3e1d7; --line2: #cdcabb;
+  --accent: #0b7a47; --on-accent: #fff; --accent-soft: #e0f2e8; --derived: #e9f4ee; --derived-ink: #09592f;
+  --bad: #c2362b; --bad-soft: #fde8e5; --hard: #7c3aed; --hard-soft: #f1eafe; --warn: #8f5400; --warn-soft: #fff1d6; --good: #1d7a43; --good-soft: #e0f2e8;
+  --grid: rgba(21,24,30,.045);
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   --sans: ui-sans-serif, -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
-  --shadow: 0 1px 2px rgba(30,25,15,.05), 0 6px 24px rgba(30,25,15,.06);
+  --shadow: 0 1px 2px rgba(20,24,30,.05), 0 8px 28px rgba(20,24,30,.06);
+  --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #15161a; --paper: #1d1f24; --ink: #ecebe7; --muted: #9a978f; --line: #2c2f36; --line2: #3a3e47;
-    --accent: #7d9cff; --accent-soft: #232c45; --derived: #1f2638; --derived-ink: #a9bcff;
-    --bad: #ff7b6e; --bad-soft: #3a1f1d; --hard: #b79cff; --hard-soft: #2a2140; --warn: #f0b04a; --warn-soft: #3a2e17; --good: #6fcf97; --good-soft: #1b3326;
-    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 24px rgba(0,0,0,.25);
+    --bg: #0d1117; --paper: #151b26; --ink: #e8ecf3; --muted: #9aa4b5; --line: #232c3b; --line2: #34405a;
+    --accent: #3ddc84; --on-accent: #06210f; --accent-soft: #14301f; --derived: #12281e; --derived-ink: #86eaae;
+    --bad: #ff7b6e; --bad-soft: #3a1f1d; --hard: #b79cff; --hard-soft: #2a2140; --warn: #f0b04a; --warn-soft: #3a2e17; --good: #5fd991; --good-soft: #14301f;
+    --grid: rgba(255,255,255,.035);
+    --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 28px rgba(0,0,0,.3);
   }
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+body { margin: 0; background: var(--bg) linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 100% 32px; background-attachment: fixed; min-height: 100vh; color: var(--ink); font: 15px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
 .wrap { max-width: 1240px; margin: 0 auto; padding: 0 20px; }
-header { padding: 28px 0 8px; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
-.logo { font: 700 26px/1 var(--mono); letter-spacing: -1px; cursor: pointer; }
+header { padding: 22px 0 6px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.logo { font: 700 24px/1 var(--mono); letter-spacing: -1px; cursor: pointer; padding: 6px 2px; border-radius: 6px; }
 .logo b { color: var(--accent); }
-.tag { color: var(--muted); }
-h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+.tag { color: var(--muted); font: 12.5px var(--mono); padding: 3px 10px; border: 1px solid var(--line2); border-radius: 99px; background: var(--paper); }
+h2 { font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin: 0 0 14px; }
+h2::before { content: "// "; color: var(--accent); }
 button { font: inherit; cursor: pointer; }
-.btn { border: 1px solid var(--line2); background: var(--paper); color: var(--ink); padding: 8px 14px; border-radius: 8px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.btn:focus-visible, .sample:focus-visible, .seg button:focus-visible { box-shadow: var(--ring); outline-offset: 0; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+.btn { border: 1px solid var(--line2); background: var(--paper); color: var(--ink); padding: 10px 16px; min-height: 42px; border-radius: 10px; font-weight: 550; display: inline-flex; align-items: center; justify-content: center; transition: border-color .18s, background .18s, transform .18s, box-shadow .18s; }
 .btn:hover { border-color: var(--accent); }
-.btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-.card { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+.btn:active { transform: translateY(1px); }
+.btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.btn.primary:hover { filter: brightness(1.08); }
+.card { background: var(--paper); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); }
 
 /* ---------- landing */
-#landing { padding: 26px 0 60px; }
-.hero { font-size: clamp(26px, 4vw, 40px); line-height: 1.15; letter-spacing: -.02em; font-weight: 650; max-width: 860px; margin: 10px 0 14px; }
+#landing { padding: 28px 0 60px; }
+.herogrid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 36px; align-items: center; margin-bottom: 30px; }
+@media (max-width: 900px) { .herogrid { grid-template-columns: minmax(0, 1fr); } .demo { display: none; } }
+.demo { padding: 14px 14px 12px; font: 13px var(--mono); }
+.demo .dh { display: flex; justify-content: space-between; color: var(--muted); font-size: 11.5px; margin-bottom: 8px; }
+.demo table { width: 100%; font: 13px var(--mono); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.demo th { position: static; background: var(--bg); font-size: 11.5px; }
+.demo td { text-align: right; }
+.demo td.derived { background: var(--derived); color: var(--derived-ink); }
+.demo .fxline { margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: var(--derived); color: var(--derived-ink); }
+.demo .fxline b { color: var(--muted); font-weight: 500; }
+.kicker { display: inline-block; font: 600 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin-bottom: 8px; }
+.hero { font-size: clamp(28px, 4.4vw, 46px); line-height: 1.1; letter-spacing: -.03em; font-weight: 700; max-width: 760px; margin: 0 0 16px; text-wrap: balance; }
 .hero em { font-style: normal; color: var(--accent); }
-.sub { color: var(--muted); max-width: 720px; font-size: 16px; margin: 0 0 28px; }
-#drop { border: 2px dashed var(--line2); border-radius: 16px; padding: 34px 20px; text-align: center; background: var(--paper); transition: .15s; }
+.sub { color: var(--muted); max-width: 640px; font-size: 16px; line-height: 1.6; margin: 0; }
+#drop { border: 2px dashed var(--line2); border-radius: 20px; padding: 40px 20px; text-align: center; background: var(--paper); box-shadow: var(--shadow); transition: border-color .18s, background .18s; }
 #drop.over { border-color: var(--accent); background: var(--accent-soft); }
-#drop .big { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+#drop .big { font-size: 20px; font-weight: 650; margin-bottom: 6px; letter-spacing: -.01em; }
 #drop .row { display: flex; gap: 10px; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
 .samples { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-top: 26px; }
-.sample { text-align: left; padding: 18px; border: 1px solid var(--line); background: var(--paper); border-radius: 14px; color: var(--ink); transition: .15s; box-shadow: var(--shadow); }
+.sample { text-align: left; padding: 18px; border: 1px solid var(--line); background: var(--paper); border-radius: 16px; color: var(--ink); transition: border-color .18s, transform .18s; box-shadow: var(--shadow); }
 .sample:hover { border-color: var(--accent); transform: translateY(-2px); }
 .sample .t { font-weight: 650; font-size: 16px; margin: 6px 0 4px; }
 .sample .d { color: var(--muted); font-size: 13.5px; }
@@ -65,20 +85,22 @@ button { font: inherit; cursor: pointer; }
 #paste { display: none; margin-top: 14px; }
 #paste textarea { width: 100%; height: 180px; font: 12.5px/1.45 var(--mono); padding: 12px; border-radius: 10px; border: 1px solid var(--line2); background: var(--paper); color: var(--ink); }
 .err { color: var(--bad); background: var(--bad-soft); border-radius: 10px; padding: 10px 14px; margin-top: 14px; display: none; }
-.how { margin-top: 38px; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; color: var(--muted); font-size: 14px; }
-.how b { color: var(--ink); display: block; margin-bottom: 2px; }
+.how { margin-top: 44px; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0; color: var(--muted); font-size: 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--paper); overflow: hidden; }
+.how > div { padding: 20px; border-right: 1px solid var(--line); }
+.how > div:last-child { border-right: 0; }
+.how b { color: var(--ink); display: block; margin-bottom: 6px; font-size: 15px; }
 
 /* ---------- results */
 #results { display: none; padding: 10px 0 80px; }
 .topline { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 6px 0 18px; }
-.headline { font-size: clamp(20px, 2.6vw, 28px); font-weight: 650; letter-spacing: -.015em; flex: 1 1 520px; }
+.headline { font-size: clamp(20px, 2.6vw, 28px); font-weight: 700; letter-spacing: -.02em; flex: 1 1 520px; }
 .headline .n { color: var(--accent); }
 .headline .bad { color: var(--bad); }
 .meta { color: var(--muted); font-size: 13px; }
 .grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 18px; }
 @media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
 .panel { padding: 18px; }
-.formula { padding: 12px 12px 10px; border-radius: 10px; border: 1px solid var(--line); margin-bottom: 10px; background: var(--paper); transition: .12s; opacity: 0; transform: translateY(6px); }
+.formula { padding: 12px 12px 10px; border-radius: 12px; border: 1px solid var(--line); margin-bottom: 10px; background: var(--paper); transition: .12s; opacity: 0; transform: translateY(6px); }
 .formula.in { opacity: 1; transform: none; transition: opacity .35s, transform .35s; }
 .formula:hover { border-color: var(--accent); }
 .fx { font: 14.5px/1.6 var(--mono); }
@@ -130,7 +152,7 @@ button { font: inherit; cursor: pointer; }
 .tablebar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 26px 0 10px; }
 .tablebar h2 { margin: 0; }
 .seg { display: inline-flex; border: 1px solid var(--line2); border-radius: 9px; overflow: hidden; }
-.seg button { border: 0; background: var(--paper); color: var(--muted); padding: 7px 13px; font-size: 13.5px; }
+.seg button { border: 0; background: var(--paper); color: var(--muted); padding: 9px 14px; font-size: 13.5px; transition: background .18s, color .18s; }
 .seg button.on { background: var(--ink); color: var(--paper); }
 .hint { color: var(--muted); font-size: 13px; flex: 1 1 260px; }
 .tbl { overflow: auto; max-height: 72vh; border-radius: 14px; }
@@ -166,7 +188,8 @@ td.focus { animation: flash 1.6s ease-out; }
 .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 5px; }
 .exports { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; align-items: center; }
 .exports .meta { flex: 1 1 300px; }
-footer { color: var(--muted); font-size: 12.5px; padding: 30px 0; border-top: 1px solid var(--line); margin-top: 30px; }
+footer { color: var(--muted); font-size: 12.5px; line-height: 1.6; padding: 30px 0; border-top: 1px solid var(--line); margin-top: 30px; max-width: 900px; }
+footer a { text-underline-offset: 3px; }
 .spinner { display: none; color: var(--muted); margin: 18px auto 0; max-width: 420px; font-size: 13.5px; }
 .track { height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; margin-bottom: 8px; }
 .bar { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
@@ -174,18 +197,36 @@ footer { color: var(--muted); font-size: 12.5px; padding: 30px 0; border-top: 1p
 .sheetpick .btn { padding: 4px 10px; font-size: 13px; }
 .sheetpick .btn.on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 button:disabled { opacity: .55; cursor: progress; }
+
+.meta code, .exports code { font: 12px var(--mono); background: var(--bg); padding: 1px 5px; border-radius: 5px; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
     <div class="logo" id="home">un<b>bake</b></div>
-    <div class="tag">formula archaeology for spreadsheets</div>
+    <div class="tag">runs in your browser &middot; nothing uploaded</div>
   </header>
 
   <section id="landing">
-    <div class="hero">Somebody exported the spreadsheet. The formulas are gone, <em>but the numbers still remember them.</em></div>
-    <p class="sub">Drop in a CSV or Excel file of plain values. Unbake works out the formulas that most likely produced each column: exact coefficients, lookups, tax tables and running totals. Then it flags the cells that break them and suggests the most likely slip, such as swapped digits or a slipped decimal point. Suggestions are inferences from the data, not proof, so always check them against the source.</p>
+    <div class="herogrid">
+      <div>
+        <span class="kicker">formula archaeology for spreadsheets</span>
+        <h1 class="hero">Somebody exported the spreadsheet. The formulas are gone, <em>but the numbers still remember them.</em></h1>
+        <p class="sub">Drop in a CSV or Excel file of plain values. Unbake works out the formulas that most likely produced each column: exact coefficients, lookups, tax tables and running totals. Then it flags the cells that break them and suggests the most likely slip, such as swapped digits or a slipped decimal point. Suggestions are inferences from the data, not proof, so always check them against the source.</p>
+      </div>
+      <div class="card demo" aria-hidden="true">
+        <div class="dh"><span>orders.csv</span><span>3 rows &middot; values only</span></div>
+        <table>
+          <tr><th>Qty</th><th>Price</th><th>Total</th></tr>
+          <tr><td>3</td><td>9.99</td><td class="derived">29.97</td></tr>
+          <tr><td>4</td><td>9.99</td><td class="derived">39.96</td></tr>
+          <tr><td>2</td><td>9.99</td><td class="derived" style="background:var(--bad-soft);color:var(--bad);font-weight:700;outline:2px solid var(--bad);outline-offset:-2px">19.89</td></tr>
+        </table>
+        <div class="fxline"><b>recovered</b> Total = ROUND(Qty &times; Price, 2)</div>
+        <div class="fxline" style="background:var(--bad-soft);color:var(--bad)"><b style="color:inherit">suspect</b> row 3: 19.89 &rarr; 19.98 (swapped digits)</div>
+      </div>
+    </div>
 
     <div id="drop">
       <i data-ic="sheet" data-cls="big"></i>
